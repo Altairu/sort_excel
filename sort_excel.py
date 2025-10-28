@@ -42,7 +42,7 @@ ROW_HEIGHT = 25  # pt ではなく「行の高さ」単位（ExcelのUI上）
 # ==================
 
 def _read_sheet(path: Path) -> pd.DataFrame:
-    df = pd.read_excel(path, sheet_name='受諾確認票')
+    df = pd.read_excel(path, sheet_name='Sheet1')
     df.columns = df.columns.str.strip()
     # 日付系
     for c in ['融資実行日','金消日・面談日']:
