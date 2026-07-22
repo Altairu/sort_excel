@@ -41,9 +41,30 @@ DEFAULT_WIDTH = PX(80)
 ROW_HEIGHT = 25  # pt ではなく「行の高さ」単位（ExcelのUI上）
 # ==================
 
+import ctypes
+
+def _show_msg(title: str, text: str, style: int = 0):
+    try:
+        ctypes.windll.user32.MessageBoxW(0, text, title, style)
+    except Exception:
+        print(f"[{title}] {text}")
+
 def _read_sheet(path: Path) -> pd.DataFrame:
-    df = pd.read_excel(path, sheet_name='Sheet1')
-    df.columns = df.columns.str.strip()
+    excel_file = pd.ExcelFile(path)
+    sheets = excel_file.sheet_names
+
+    target_sheet = None
+    candidates = ['受諾確認票', 'Sheet1', 'シート1']
+    for candidate in candidates:
+        if candidate in sheets:
+            target_sheet = candidate
+            break
+
+    if target_sheet is None and len(sheets) > 0:
+        target_sheet = sheets[0]
+
+    df = pd.read_excel(excel_file, sheet_name=target_sheet)
+    df.columns = df.columns.astype(str).str.strip()
     # 日付系
     for c in ['融資実行日','金消日・面談日']:
         if c in df.columns:
@@ -214,12 +235,18 @@ def sort_excel(input_path: str, output_path: str = 'sorted_combined.xlsx'):
     return str(Path(output_path).resolve())
 
 def main():
-    if len(sys.argv) < 2:
-        print("使い方: sort_excel.exe <Excelファイルパス>  あるいは  python sort_excel.py <Excelファイルパス>")
+    try:
+        if len(sys.argv) < 2:
+            _show_msg("使い方", "処理したいExcelファイルを本実行ファイル (sort_excel.exe) にドラッグ/ドロップして実行してください。", 64)
+            sys.exit(0)
+        input_file = sys.argv[1]
+        out = sort_excel(input_file)
+        _show_msg("完了", f"処理が正常に完了しました。\n\n出力ファイル: {out}", 64)
+    except Exception as e:
+        import traceback
+        err_detail = traceback.format_exc()
+        _show_msg("エラー", f"処理中にエラーが発生しました:\n\n{e}\n\n詳細:\n{err_detail}", 16)
         sys.exit(1)
-    input_file = sys.argv[1]
-    out = sort_excel(input_file)
-    print(f'出力: {out}')
 
 if __name__ == '__main__':
     main()
