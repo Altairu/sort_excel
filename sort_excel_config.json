@@ -1,0 +1,44 @@
+{
+  "staff_order": [
+    "新人A",
+    "河内",
+    "岩川",
+    "杉田",
+    "正木",
+    "吉田",
+    "中谷",
+    "椙村",
+    "北条",
+    "上野"
+  ],
+  "sort_keys": [
+    {
+      "key": "識別",
+      "ascending": false
+    },
+    {
+      "key": "担当",
+      "ascending": true
+    },
+    {
+      "key": "時間",
+      "ascending": true
+    }
+  ],
+  "sheet_options": {
+    "loan_sheet": true,
+    "cancel_sheet": true,
+    "combined_sheet": true,
+    "date_sheets": true
+  },
+  "formatting": {
+    "row_height": 25,
+    "col_widths": {
+      "お客様氏名": 16.43,
+      "物件": 22.86,
+      "場所": 22.86
+    },
+    "default_col_width": 11.43
+  },
+  "last_input_dir": "D:\\"
+}

@@ -1,12 +1,20 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-
 a = Analysis(
     ['sort_excel.py'],
     pathex=[],
     binaries=[],
-    datas=[],
-    hiddenimports=[],
+    datas=[
+        ('icon.ico', '.')
+    ],
+    hiddenimports=[
+        'config_manager',
+        'sort_core',
+        'gui_app',
+        'windnd',
+        'openpyxl',
+        'pandas'
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -20,7 +28,6 @@ a = Analysis(
         'pyarrow',
         'cryptography',
         'PIL',
-        'tkinter',
     ],
     noarchive=False,
     optimize=0,
