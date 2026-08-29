@@ -5,12 +5,13 @@
 """
 
 import json
+import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "staff_order": [
-        "河内", "岩川", "杉田", "正木", "吉田", "中谷", "椙村", "北条", "上野"
+        "河内", "岩川", "杉田", "正木", "吉田", "中谷", "椙村", "北條", "上野"
     ],
     "sort_keys": [
         {"key": "識別", "ascending": False},
@@ -39,7 +40,13 @@ CONFIG_FILE_NAME = "sort_excel_config.json"
 
 def get_config_path() -> Path:
     """設定ファイルの保存先パスを返します"""
-    return Path(__file__).resolve().parent / CONFIG_FILE_NAME
+    if getattr(sys, "frozen", False):
+        # exeとして実行されている場合はexeと同じディレクトリ
+        base_dir = Path(sys.executable).resolve().parent
+    else:
+        # Pythonスクリプトとして実行されている場合
+        base_dir = Path(__file__).resolve().parent
+    return base_dir / CONFIG_FILE_NAME
 
 def load_config() -> Dict[str, Any]:
     """設定ファイルを読み込みます。存在しない場合はデフォルト値を返します"""
