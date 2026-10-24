@@ -102,7 +102,14 @@ flowchart TD
 
 * sort_excel_config.json
   * ユーザーが保存した設定値を保持するJSONファイルです。
-  * 担当者の並び順、ソートキー、シート出力オプション、書式設定値が保存されます。
+  * 担当者の並び順、ソートキー、シート出力オプション、書式設定値、更新確認の設定が保存されます。
+
+* updater.py
+  * GitHub Releases から最新版を確認し、exe のダウンロードと差し替えを行うモジュールです。
+  * 標準ライブラリのみで実装しているため、追加の依存はありません。
+
+* version.py
+  * アプリのバージョン番号を 1 か所で管理するファイルです。
 
 * sort_excel.spec
   * PyInstaller用のビルド構成ファイルです。
@@ -148,10 +155,47 @@ flowchart TD
 PyInstallerを利用して、Python未導入のPCでもそのまま起動できる単一のexeファイルを作成できます。
 
 ```bash
+pip install -r requirements.txt pyinstaller
 pyinstaller --clean sort_excel.spec
 ```
 
-ビルドが完了すると、dist/sort_excel.exe が生成されます。
+ビルドが完了すると、dist/sort_excel.exe が生成されます。dist と build は Git の管理対象外で、配布は GitHub Releases のみで行います。
+
+## 自動アップデート
+
+exe を起動すると、裏で GitHub Releases の最新版を確認します。新しいバージョンがあれば変更内容を表示したダイアログが開き、次の操作から選べます。
+
+* 今すぐ更新する : 新しい exe をダウンロードして SHA256 を照合し、差し替えてから再起動します
+* 後で : 今回は更新せず、次回の起動時にもう一度通知します
+* このバージョンをスキップ : そのバージョンについては以後通知しません
+
+ヘルプのメニューにある更新を確認からも手動で確認できます。ネットワークに繋がらないときは何も表示せずにそのまま起動します。設定は exe とは別のファイルに保存されているため、更新しても引き継がれます。
+
+起動時の確認を止めたい場合は、sort_excel_config.json の update にある auto_check を false にしてください。
+
+exe を書き込み権限のないフォルダに置いている場合は差し替えに失敗します。その場合はデスクトップやドキュメントなど、ユーザーが書き込めるフォルダに置いてください。
+
+## リリース手順
+
+GitHub Actions がタグの push を受けて、exe のビルドと Release の作成を自動で行います。
+
+```mermaid
+flowchart LR
+    A[version.py を更新してコミット] --> B[タグを push]
+    B --> C[GitHub Actions でビルド]
+    C --> D[Release に exe と sha256 を添付]
+    D --> E[各PCのアプリが起動時に検知]
+```
+
+```bash
+# version.py の __version__ を 2.1.0 に更新してコミットしたあと
+git tag v2.1.0
+git push origin main v2.1.0
+```
+
+* タグは小文字の v を付けた v2.1.0 の形式にしてください。V2.0.0 以前のタグはそのまま残しています
+* タグと version.py の番号が一致しない場合、ワークフローはエラーで止まります
+* リリースノートは前回のリリースからの変更をもとに自動で作られます。必要に応じて Release のページから編集してください
 
 ## トラブルシューティング
 

@@ -33,7 +33,11 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         },
         "default_col_width": 11.43  # 約80px
     },
-    "last_input_dir": ""
+    "last_input_dir": "",
+    "update": {
+        "auto_check": True,      # 起動時に最新版を確認するか
+        "skipped_version": ""    # ユーザーがスキップを選んだバージョンのタグ
+    }
 }
 
 CONFIG_FILE_NAME = "sort_excel_config.json"

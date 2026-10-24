@@ -8,6 +8,7 @@ import os
 import sys
 import subprocess
 import threading
+import webbrowser
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
@@ -16,6 +17,8 @@ from typing import Any, Dict, List, Optional
 # 設定マネージャーとソートコア
 from config_manager import load_config, save_config, reset_config, get_config_path
 from sort_core import process_excel
+import updater
+from version import __version__
 
 # ドラッグ&ドロップの安全なインポート
 try:
@@ -30,7 +33,7 @@ class SortExcelApp(tk.Tk):
 
     def __init__(self):
         super().__init__()
-        self.title("Excel受諾確認票 並べ替えツール")
+        self.title(f"Excel受諾確認票 並べ替えツール v{__version__}")
         self.geometry("760x640")
         self.minsize(680, 560)
 
@@ -60,6 +63,9 @@ class SortExcelApp(tk.Tk):
         # D&D設定
         self._setup_drag_and_drop()
 
+        # 起動時のアップデート確認
+        self._start_startup_update_check()
+
     def _setup_styles(self):
         """UI全体のフォントとテーマスタイルを調整します"""
         self.style = ttk.Style(self)
@@ -86,6 +92,9 @@ class SortExcelApp(tk.Tk):
 
     def _build_ui(self):
         """メインUIコンポーネントを配置します"""
+        # メニューバー
+        self._build_menu()
+
         # タブコントロール
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
@@ -633,6 +642,193 @@ class SortExcelApp(tk.Tk):
             self.var_opt_date.set(sheet_opts.get("date_sheets", True))
             self.var_row_height.set(self.config.get("formatting", {}).get("row_height", 25))
             messagebox.showinfo("リセット完了", "すべての設定を初期値に戻しました。")
+
+    # ----------------------------------------------------
+    # メニューとアップデート
+    # ----------------------------------------------------
+    def _build_menu(self):
+        """メニューバーを作成します"""
+        menubar = tk.Menu(self)
+        help_menu = tk.Menu(menubar, tearoff=False)
+        help_menu.add_command(label="更新を確認...", command=self._check_update_manual)
+        help_menu.add_separator()
+        help_menu.add_command(label="バージョン情報", command=self._show_about)
+        menubar.add_cascade(label="ヘルプ", menu=help_menu)
+        self.configure(menu=menubar)
+
+    def _show_about(self):
+        """バージョン情報を表示します"""
+        messagebox.showinfo(
+            "バージョン情報",
+            f"Excel受諾確認票 並べ替えツール\nバージョン v{__version__}\n\n{updater.RELEASES_PAGE_URL}"
+        )
+
+    def _start_startup_update_check(self):
+        """起動時に裏で最新版を確認します。失敗しても何も表示しません"""
+        def worker():
+            # 前回の更新で残ったファイルを片付けます
+            updater.cleanup_old_files()
+
+            update_cfg = self.config.get("update", {})
+            if not update_cfg.get("auto_check", True):
+                return
+            try:
+                info = updater.fetch_latest_release()
+            except updater.UpdateError:
+                return
+            if not updater.is_newer(info):
+                return
+            if info.tag and info.tag == update_cfg.get("skipped_version", ""):
+                return
+            self.after(0, self._show_update_dialog, info)
+
+        # 画面の表示を優先するため少し遅らせて開始します
+        self.after(1500, lambda: threading.Thread(target=worker, daemon=True).start())
+
+    def _check_update_manual(self):
+        """メニューから最新版を確認します。スキップ設定は無視します"""
+        self.status_var.set("最新版を確認しています...")
+
+        def worker():
+            try:
+                info = updater.fetch_latest_release()
+            except updater.UpdateError as e:
+                self.after(0, lambda: messagebox.showerror("更新の確認", str(e)))
+                self.after(0, lambda: self.status_var.set("準備完了"))
+                return
+            self.after(0, lambda: self.status_var.set("準備完了"))
+            if updater.is_newer(info):
+                self.after(0, self._show_update_dialog, info)
+            else:
+                self.after(0, lambda: messagebox.showinfo(
+                    "更新の確認", f"お使いのバージョン v{__version__} は最新です。"
+                ))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _show_update_dialog(self, info: "updater.ReleaseInfo"):
+        """新しいバージョンの通知ダイアログを表示します"""
+        dialog = tk.Toplevel(self)
+        dialog.title("アップデートのお知らせ")
+        dialog.transient(self)
+        dialog.resizable(True, True)
+        dialog.minsize(460, 320)
+
+        frame = ttk.Frame(dialog, padding=14)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(
+            frame,
+            text=f"新しいバージョン {info.tag} が公開されています。",
+            style="Header.TLabel"
+        ).pack(anchor=tk.W)
+        ttk.Label(frame, text=f"現在のバージョン: v{__version__}").pack(anchor=tk.W, pady=(2, 8))
+
+        ttk.Label(frame, text="変更内容:").pack(anchor=tk.W)
+        notes_frame = ttk.Frame(frame)
+        notes_frame.pack(fill=tk.BOTH, expand=True, pady=(2, 8))
+        notes = tk.Text(notes_frame, wrap=tk.WORD, height=10, font=("Yu Gothic UI", 9))
+        notes.insert("1.0", info.notes or "変更内容の記載はありません。")
+        notes.config(state=tk.DISABLED)
+        notes.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        notes_scroll = ttk.Scrollbar(notes_frame, orient=tk.VERTICAL, command=notes.yview)
+        notes_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        notes.config(yscrollcommand=notes_scroll.set)
+
+        can_update = updater.can_self_update(info)
+        if not can_update:
+            reason = (
+                "Python スクリプトとして実行中のため、自動更新は行いません。"
+                if not updater.is_frozen()
+                else "このリリースは自動更新に対応していません。"
+            )
+            ttk.Label(frame, text=reason + "\nダウンロードページから入手してください。").pack(anchor=tk.W, pady=(0, 8))
+
+        btn_row = ttk.Frame(frame)
+        btn_row.pack(fill=tk.X)
+
+        def on_skip():
+            update_cfg = dict(self.config.get("update", {}))
+            update_cfg["skipped_version"] = info.tag
+            self.config["update"] = update_cfg
+            save_config(self.config)
+            dialog.destroy()
+
+        def on_open_page():
+            webbrowser.open(info.html_url)
+            dialog.destroy()
+
+        if can_update:
+            ttk.Button(
+                btn_row, text="今すぐ更新する", style="Primary.TButton",
+                command=lambda: self._begin_update(info, dialog)
+            ).pack(side=tk.RIGHT)
+        else:
+            ttk.Button(
+                btn_row, text="ダウンロードページを開く", style="Primary.TButton",
+                command=on_open_page
+            ).pack(side=tk.RIGHT)
+        ttk.Button(btn_row, text="後で", command=dialog.destroy).pack(side=tk.RIGHT, padx=6)
+        ttk.Button(btn_row, text="このバージョンをスキップ", command=on_skip).pack(side=tk.LEFT)
+
+        dialog.grab_set()
+        dialog.focus_set()
+
+    def _begin_update(self, info: "updater.ReleaseInfo", dialog: tk.Toplevel):
+        """ダウンロードを開始し、進捗を表示します"""
+        if self.is_processing:
+            messagebox.showwarning("更新", "並べ替え処理の実行中です。処理が終わってから更新してください。", parent=dialog)
+            return
+        dialog.destroy()
+
+        win = tk.Toplevel(self)
+        win.title("アップデート")
+        win.transient(self)
+        win.resizable(False, False)
+        # ダウンロード中は閉じられないようにします
+        win.protocol("WM_DELETE_WINDOW", lambda: None)
+
+        frame = ttk.Frame(win, padding=16)
+        frame.pack(fill=tk.BOTH, expand=True)
+        status = tk.StringVar(value=f"{info.tag} をダウンロードしています...")
+        ttk.Label(frame, textvariable=status).pack(anchor=tk.W, pady=(0, 8))
+        bar = ttk.Progressbar(frame, mode="determinate", length=360, maximum=100)
+        bar.pack(fill=tk.X)
+        win.grab_set()
+
+        def on_progress(done: int, total: int):
+            def ui():
+                if total > 0:
+                    bar["value"] = done * 100 / total
+                    status.set(f"{info.tag} をダウンロードしています... {done // (1024 * 1024)} / {total // (1024 * 1024)} MB")
+            self.after(0, ui)
+
+        def worker():
+            try:
+                new_path = updater.download_update(info, progress_cb=on_progress)
+            except updater.UpdateError as e:
+                self.after(0, self._on_update_failed, win, str(e))
+                return
+            self.after(0, self._finish_update, win, new_path)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_update_failed(self, win: tk.Toplevel, message: str):
+        """更新失敗時の後始末です"""
+        win.grab_release()
+        win.destroy()
+        messagebox.showerror("アップデート失敗", f"{message}\n\n現在のバージョンのまま使用できます。")
+
+    def _finish_update(self, win: tk.Toplevel, new_path: Path):
+        """exe を差し替えて新しいバージョンを起動し、このアプリを終了します"""
+        try:
+            updater.apply_update(new_path)
+        except updater.UpdateError as e:
+            self._on_update_failed(win, str(e))
+            return
+        win.grab_release()
+        win.destroy()
+        self.destroy()
 
 
 def launch_gui(initial_file: Optional[str] = None):

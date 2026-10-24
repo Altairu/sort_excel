@@ -11,6 +11,8 @@ a = Analysis(
         'config_manager',
         'sort_core',
         'gui_app',
+        'updater',
+        'version',
         'windnd',
         'openpyxl',
         'pandas'

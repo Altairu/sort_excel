@@ -1,0 +1,15 @@
+# PyInstaller のビルド成果物は Release で配布するため管理しない
+build/
+dist/
+
+# Python のキャッシュ
+__pycache__/
+*.py[cod]
+
+# 仮想環境
+.venv/
+venv/
+
+# 自動更新で一時的に作られるファイル
+*.exe.new
+*.exe.old
