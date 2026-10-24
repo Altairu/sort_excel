@@ -25,7 +25,10 @@ ASSET_NAME = "sort_excel.exe"
 CHECKSUM_ASSET_NAME = ASSET_NAME + ".sha256"
 
 LATEST_RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+REPO_URL = f"https://github.com/{GITHUB_REPO}"
 RELEASES_PAGE_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
+ISSUES_URL = f"https://github.com/{GITHUB_REPO}/issues"
+NEW_ISSUE_URL = f"https://github.com/{GITHUB_REPO}/issues/new"
 
 USER_AGENT = f"sort_excel-updater/{__version__}"
 

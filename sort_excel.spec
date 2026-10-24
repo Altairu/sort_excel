@@ -5,7 +5,8 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[
-        ('icon.ico', '.')
+        ('icon.ico', '.'),
+        ('LICENSE', '.')
     ],
     hiddenimports=[
         'config_manager',

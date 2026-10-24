@@ -12,6 +12,9 @@ permissions:
 jobs:
   build-and-release:
     runs-on: windows-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION: node24
     steps:
       - name: リポジトリの取得
         uses: actions/checkout@v4
