@@ -5,6 +5,7 @@ mod excel_exporter;
 mod excel_importer;
 mod models;
 mod static_files;
+mod updater;
 #[cfg(windows)]
 mod tray;
 
@@ -29,6 +30,9 @@ async fn main() -> Result<()> {
             let _ = std::env::set_current_dir(exe_dir);
         }
     }
+
+    // 前回の自動アップデートで残った .old / .new ファイルをクリーンアップ
+    updater::cleanup_old_files();
 
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -156,6 +160,8 @@ async fn main() -> Result<()> {
         )
         .route("/api/sorted-views", get(api::get_sorted_views))
         .route("/api/stats", get(api::get_stats))
+        .route("/api/update/check", get(api::check_update_handler))
+        .route("/api/update/apply", post(api::apply_update_handler))
         .fallback(static_files::static_handler)
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),

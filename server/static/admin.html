@@ -152,6 +152,7 @@
     <div class="header-left">
       <div class="logo">受託確認票 管理者コンソール</div>
       <span class="admin-badge">管理者専用</span>
+      <span class="stat-badge" id="adminVersionBadge">v2.2.1</span>
       <div class="stats-bar">
         <span class="stat-badge">有効案件: <b id="adminStatTotal">-</b></span>
         <span class="stat-badge">ゴミ箱: <b id="adminStatTrash">-</b></span>
@@ -165,6 +166,19 @@
       <a href="/" class="btn btn-outline" style="text-decoration: none;">← 使用者画面へ</a>
     </div>
   </header>
+
+  <!-- 新バージョン通知バー（更新があるときのみ自動表示） -->
+  <div class="share-url-banner" id="updateAvailableBanner" style="display: none;">
+    <div class="share-url-card" style="background-color: #f0fdf4; border-color: #86efac;">
+      <div>
+        <div style="font-weight: 700; color: #166534; font-size: 14px;" id="updateBannerTitle">新しいバージョンが公開されています</div>
+        <div style="font-size: 12px; color: #15803d; margin-top: 2px;">GitHub Releases から最新版の sort_excel_server.exe を自動ダウンロードし、SHA256ハッシュ照合のうえ安全に更新できます。</div>
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <button type="button" class="btn btn-sm btn-secondary" id="btnOpenUpdatePane">更新内容を確認してアップデート</button>
+      </div>
+    </div>
+  </div>
 
   <!-- 社員共有用URLコピーバー -->
   <div class="share-url-banner">
@@ -196,6 +210,10 @@
         <span class="stat-badge badge-pending" id="navReportCount">0</span>
       </button>
       <button class="admin-nav-btn" data-target="pane-logs">アクセス履歴 / 権限とIP制限</button>
+      <button class="admin-nav-btn" data-target="pane-update" id="navBtnUpdate">
+        <span>自動アップデート / 更新確認</span>
+        <span class="stat-badge badge-pending" id="navUpdateBadge" style="display: none;">更新あり</span>
+      </button>
       <button class="admin-nav-btn" data-target="pane-security">セキュリティ対策 / 注意事項</button>
       <button class="admin-nav-btn" data-target="pane-license">ライセンス / 権利表記</button>
     </nav>
@@ -598,8 +616,48 @@
               <td><b>同時編集の上書き防止と多層バックアップ</b></td>
               <td>同じ案件を複数人が同時に開いて編集した場合、バージョン番号の照合（楽観的ロック）により後から保存した側へ警告を表示し、意図しない上書き消去を防ぎます。また、削除操作はゴミ箱への移動（論理削除）とし、Excel上書き直前の退避ファイルと日次自動バックアップにより、誤操作時でも即座に復元できます。</td>
             </tr>
+            <tr>
+              <td><b>SHA256ハッシュ検証付き自動アップデート</b></td>
+              <td>GitHub Releases から新バージョンの <code>sort_excel_server.exe</code> をダウンロードする際、同時に公開される <code>.sha256</code> チェックサムと厳密にハッシュ照合を行い、破損や改ざんがないことを確認してから実行ファイルを差し替えて再起動します。</td>
+            </tr>
           </tbody>
         </table>
+      </section>
+
+      <!-- 自動アップデート / バージョン管理 -->
+      <section class="admin-card" id="pane-update">
+        <h3>自動アップデート / バージョン管理 (GitHub Releases 連携)</h3>
+        <p class="section-desc">
+          GitHub Releases (<code>Altairu/sort_excel</code>) に公開されている最新リリースを確認し、ワンクリックで <code>sort_excel_server.exe</code> の自動ダウンロード、SHA256チェックサム照合、実行ファイルの差し替え、およびサーバーの自動再起動を行います。データベース（<code>data.db</code>）や設定はすべてそのまま引き継がれます。
+        </p>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 20px;">
+          <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 16px;">
+            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">現在稼働中のサーバーバージョン</div>
+            <div style="font-size: 22px; font-weight: 700; color: #0f172a;" id="updateCurrentVer">v2.2.1</div>
+          </div>
+          <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 16px;">
+            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">GitHub Releases 最新バージョン</div>
+            <div style="font-size: 22px; font-weight: 700; color: #1e3a8a;" id="updateLatestVer">確認中...</div>
+          </div>
+          <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 16px;">
+            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">アップデート状態</div>
+            <div style="font-size: 15px; font-weight: 700; color: #334155; margin-top: 4px;" id="updateStatusText">GitHubを確認しています...</div>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 20px;">
+          <button type="button" class="btn btn-outline" id="btnCheckUpdateNow">今すぐ最新版を確認</button>
+          <button type="button" class="btn btn-secondary" id="btnApplyUpdateNow" style="display: none;">最新バージョンへ自動更新して再起動</button>
+          <a href="https://github.com/Altairu/sort_excel/releases" target="_blank" rel="noopener noreferrer" class="btn btn-outline" id="linkGithubRelease" style="text-decoration: none;">GitHub Releases ページを開く ↗</a>
+        </div>
+
+        <div id="updateProgressBox" style="display: none; background-color: #eff6ff; border: 1px solid #93c5fd; border-radius: 8px; padding: 16px; margin-bottom: 20px; color: #1e3a8a; font-weight: 600;">
+          最新バージョンのダウンロードとSHA256ハッシュ検証を実行中です。完了するとサーバーが自動的に再起動し、数秒後にこの画面が再読み込みされます...
+        </div>
+
+        <h4 class="section-title">最新リリースの変更内容 / リリースノート</h4>
+        <pre id="updateReleaseNotes" style="background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 16px; font-size: 13px; color: #334155; white-space: pre-wrap; line-height: 1.6; max-height: 360px; overflow-y: auto;">リリース情報を取得するとここに表示されます。</pre>
       </section>
 
       <!-- 9. ライセンス / 権利表記（管理者画面限定） -->

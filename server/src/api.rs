@@ -1333,6 +1333,7 @@ pub fn create_local_desktop_shortcuts(port: u16) -> anyhow::Result<String> {
 
 #[derive(Debug, Deserialize)]
 pub struct ShortcutRequest {
+    #[allow(dead_code)]
     pub target_url: Option<String>,
 }
 
@@ -1380,7 +1381,7 @@ pub async fn download_shortcut_file(
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
     // Hostヘッダーがあればそこから接続先URLを組み立て、なければ自動検出IPを使用
-    let host_Url = headers
+    let host_url = headers
         .get(axum::http::header::HOST)
         .and_then(|h| h.to_str().ok())
         .map(|h| format!("http://{}/", h))
@@ -1393,7 +1394,7 @@ pub async fn download_shortcut_file(
 
     let content = format!(
         "[InternetShortcut]\r\nURL={}\r\nIconIndex=0\r\n",
-        host_Url
+        host_url
     );
 
     (
@@ -1455,6 +1456,82 @@ pub async fn get_stats(State(state): State<Arc<AppState>>) -> impl IntoResponse 
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ApiResponse::err(e.to_string())),
+        ),
+    }
+}
+
+/// GitHub Releases の最新バージョンを確認（管理者画面用）
+pub async fn check_update_handler(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    if !is_admin_request(&addr, &state) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ApiResponse::err(
+                "管理者設定の変更は許可された管理者PCからのみ実行できます",
+            )),
+        );
+    }
+
+    let res = tokio::task::spawn_blocking(crate::updater::check_for_update).await;
+    match res {
+        Ok(Ok(info)) => (StatusCode::OK, Json(ApiResponse::ok(info))),
+        Ok(Err(e)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::err(e.to_string())),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::err(format!("更新確認タスクエラー: {}", e))),
+        ),
+    }
+}
+
+/// GitHub Releases から最新版をダウンロードしてSHA256照合・exe差し替え・再起動を実行（管理者画面用）
+pub async fn apply_update_handler(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    if !is_admin_request(&addr, &state) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ApiResponse::err(
+                "管理者設定の変更は許可された管理者PCからのみ実行できます",
+            )),
+        );
+    }
+
+    let res = tokio::task::spawn_blocking(crate::updater::download_and_stage_update).await;
+    match res {
+        Ok(Ok(info)) => {
+            let _ = state.db.insert_audit_log(
+                &format_client_ip(&addr),
+                "管理者",
+                "CONFIG",
+                None,
+                &format!(
+                    "システム自動アップデート実行: v{} → {}",
+                    info.current_version, info.latest_tag
+                ),
+                "GitHub Releasesから最新バイナリをダウンロードし、SHA256検証のうえ自動更新・再起動を実行しました",
+            );
+            crate::updater::trigger_restart_into_new_binary();
+            (
+                StatusCode::OK,
+                Json(ApiResponse::ok(format!(
+                    "最新バージョン ({}) への更新が完了しました。サーバーを自動再起動しています...",
+                    info.latest_tag
+                ))),
+            )
+        }
+        Ok(Err(e)) => (
+            StatusCode::BAD_REQUEST,
+            Json(ApiResponse::err(e.to_string())),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::err(format!("更新実行タスクエラー: {}", e))),
         ),
     }
 }

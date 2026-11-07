@@ -946,6 +946,148 @@ async function loadBugReports() {
 
 document.getElementById('btnRefreshReports').addEventListener('click', loadBugReports);
 
+// 自動アップデート確認 / 実行処理
+let latestUpdateInfo = null;
+
+async function checkUpdateStatus(notifyIfUpToDate = false) {
+  const latestVerEl = document.getElementById('updateLatestVer');
+  const statusTextEl = document.getElementById('updateStatusText');
+  const notesEl = document.getElementById('updateReleaseNotes');
+  const btnApply = document.getElementById('btnApplyUpdateNow');
+  const banner = document.getElementById('updateAvailableBanner');
+  const navBadge = document.getElementById('navUpdateBadge');
+
+  if (statusTextEl) statusTextEl.textContent = 'GitHub Releases を確認中...';
+
+  try {
+    const res = await fetch('/api/update/check');
+    const json = await res.json();
+    if (!json.success || !json.data) {
+      if (statusTextEl) statusTextEl.textContent = json.error || '更新確認に失敗しました';
+      if (notifyIfUpToDate) showToast(json.error || '更新確認に失敗しました', 'error');
+      return;
+    }
+
+    const info = json.data;
+    latestUpdateInfo = info;
+
+    const curVerText = `v${info.current_version}`;
+    const verBadge = document.getElementById('adminVersionBadge');
+    const curVerEl = document.getElementById('updateCurrentVer');
+    if (verBadge) verBadge.textContent = curVerText;
+    if (curVerEl) curVerEl.textContent = curVerText;
+    if (latestVerEl) latestVerEl.textContent = info.latest_tag || curVerText;
+    if (notesEl) notesEl.textContent = info.release_notes || '（リリースノートの記載はありません）';
+
+    const linkGh = document.getElementById('linkGithubRelease');
+    if (linkGh && info.release_url) {
+      linkGh.href = info.release_url;
+    }
+
+    if (info.is_update_available) {
+      if (navBadge) navBadge.style.display = 'inline-block';
+      if (banner) {
+        banner.style.display = 'block';
+        const titleEl = document.getElementById('updateBannerTitle');
+        if (titleEl) {
+          titleEl.textContent = `新しいバージョン (${info.latest_tag}) が利用可能です（現在: v${info.current_version}）`;
+        }
+      }
+      if ( info.can_auto_update) {
+        if (statusTextEl) {
+          statusTextEl.textContent = `新しいバージョン (${info.latest_tag}) へ自動更新できます`;
+          statusTextEl.style.color = '#166534';
+        }
+        if (btnApply) btnApply.style.display = 'inline-flex';
+      } else {
+        if (statusTextEl) {
+          statusTextEl.textContent = `新バージョン (${info.latest_tag}) があります（GitHubページからダウンロード可能）`;
+          statusTextEl.style.color = '#b45309';
+        }
+        if (btnApply) btnApply.style.display = 'none';
+      }
+    } else {
+      if (navBadge) navBadge.style.display = 'none';
+      if (banner) banner.style.display = 'none';
+      if (btnApply) btnApply.style.display = 'none';
+      if (statusTextEl) {
+        statusTextEl.textContent = 'お使いのバージョンは最新です';
+        statusTextEl.style.color = '#334155';
+      }
+      if (notifyIfUpToDate) {
+        showToast(`現在のバージョン (v${info.current_version}) は最新です`, 'success');
+      }
+    }
+  } catch (err) {
+    if (statusTextEl) statusTextEl.textContent = 'ネットワーク未接続またはGitHubへ接続できませんでした';
+    if (notifyIfUpToDate) showToast('GitHub Releases への接続に失敗しました', 'error');
+  }
+}
+
+async function applyAutoUpdate() {
+  const targetTag = latestUpdateInfo ? latestUpdateInfo.latest_tag : '最新版';
+  if (!confirm(`GitHub Releases から ${targetTag} をダウンロードし、SHA256ハッシュ検証のうえ sort_excel_server.exe を自動更新して再起動しますか？\n（登録済みの案件データや設定はすべてそのまま引き継がれます）`)) {
+    return;
+  }
+
+  const btnApply = document.getElementById('btnApplyUpdateNow');
+  const progressBox = document.getElementById('updateProgressBox');
+  if (btnApply) btnApply.disabled = true;
+  if (progressBox) progressBox.style.display = 'block';
+
+  try {
+    const res = await fetch('/api/update/apply', { method: 'POST' });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.data || '更新完了。再起動しています...', 'success');
+      // 新しいサーバープロセスが立ち上がるのを待って自動リロード
+      let attempts = 0;
+      const timer = setInterval(async () => {
+        attempts++;
+        try {
+          const ping = await fetch('/api/stats');
+          if (ping.ok) {
+            clearInterval(timer);
+            window.location.reload();
+          }
+        } catch (e) {
+          // 再起動中
+        }
+        if (attempts > 20) {
+          clearInterval(timer);
+          window.location.reload();
+        }
+      }, 1500);
+    } else {
+      if (btnApply) btnApply.disabled = false;
+      if (progressBox) progressBox.style.display = 'none';
+      showToast(json.error || '自動更新に失敗しました', 'error');
+    }
+  } catch (err) {
+    if (btnApply) btnApply.disabled = false;
+    if (progressBox) progressBox.style.display = 'none';
+    showToast('自動更新リクエスト中に通信エラーが発生しました', 'error');
+  }
+}
+
+const btnCheckUpdateNow = document.getElementById('btnCheckUpdateNow');
+if (btnCheckUpdateNow) {
+  btnCheckUpdateNow.addEventListener('click', () => checkUpdateStatus(true));
+}
+
+const btnApplyUpdateNow = document.getElementById('btnApplyUpdateNow');
+if (btnApplyUpdateNow) {
+  btnApplyUpdateNow.addEventListener('click', applyAutoUpdate);
+}
+
+const btnOpenUpdatePane = document.getElementById('btnOpenUpdatePane');
+if (btnOpenUpdatePane) {
+  btnOpenUpdatePane.addEventListener('click', () => {
+    const navBtn = document.getElementById('navBtnUpdate');
+    if (navBtn) navBtn.click();
+  });
+}
+
 // ナビゲーション切り替え
 document.querySelectorAll('.admin-nav-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -964,6 +1106,8 @@ document.querySelectorAll('.admin-nav-btn').forEach(btn => {
       loadBugReports();
     } else if (targetId === 'pane-logs') {
       loadAuditLogs();
+    } else if (targetId === 'pane-update') {
+      checkUpdateStatus(false);
     }
   });
 });
@@ -977,5 +1121,6 @@ window.addEventListener('DOMContentLoaded', async () => {
     loadTrashList(),
     loadBugReports(),
     loadAuditLogs(),
+    checkUpdateStatus(false),
   ]);
 });

@@ -208,20 +208,20 @@ exe を書き込み権限のないフォルダに置いている場合は差し�
 
 ## リリース手順
 
-GitHub Actions がタグの push を受けて、exe のビルドと Release の作成を自動で行います。
+GitHub Actions がタグの push を受けて、デスクトップ版（`sort_excel.exe`）とWebサーバー版（`sort_excel_server.exe`）の両方のビルドと Release の作成を自動で行います。
 
 ```mermaid
 flowchart LR
-    A[version.py を更新してコミット] --> B[タグを push]
-    B --> C[GitHub Actions でビルド]
-    C --> D[Release に exe と sha256 を添付]
-    D --> E[各PCのアプリが起動時に検知]
+    A[version.py と server/Cargo.toml を更新してコミット] --> B[タグを push]
+    B --> C[GitHub Actions で両exeをビルド]
+    C --> D[Release に両exeと sha256 を添付]
+    D --> E[各PCのアプリ / サーバー管理画面が検知して自動更新]
 ```
 
 ```bash
-# version.py の __version__ を 2.1.0 に更新してコミットしたあと
-git tag v2.1.0
-git push origin main v2.1.0
+# version.py の __version__ と server/Cargo.toml の version を 2.3.0 に更新してコミットしたあと
+git tag v2.3.0
+git push origin main v2.3.0
 ```
 
 * タグは小文字の v を付けた v2.1.0 の形式にしてください。V2.0.0 以前のタグはそのまま残しています
