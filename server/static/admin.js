@@ -472,6 +472,76 @@ async function loadTrashList() {
   }
 }
 
+// アクセス・操作履歴ログ一覧と検索
+function getActionBadge(actionType) {
+  const map = {
+    CREATE: { label: '新規登録', cls: 'badge-done' },
+    UPDATE: { label: '案件更新', cls: 'badge-active' },
+    DELETE: { label: '削除', cls: 'badge-pending' },
+    RESTORE: { label: '復元', cls: 'badge-done' },
+    PURGE: { label: '完全削除', cls: 'badge-pending' },
+    EXPORT: { label: 'Excel出力', cls: 'stat-badge' },
+    CONFIG: { label: '設定変更', cls: 'stat-badge' },
+    IMPORT: { label: '一括取込', cls: 'badge-active' },
+    BACKUP: { label: 'バックアップ', cls: 'stat-badge' },
+    ACCESS: { label: '画面アクセス', cls: 'stat-badge' },
+  };
+  const item = map[actionType] || { label: actionType, cls: 'stat-badge' };
+  return `<span class="stat-badge ${item.cls}">${escapeHtml(item.label)}</span>`;
+}
+
+async function loadAuditLogs() {
+  const tbody = document.getElementById('auditLogsTbody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  const q = (document.getElementById('logSearchInput').value || '').trim();
+  const actionType = document.getElementById('logActionFilter').value || '';
+
+  const params = new URLSearchParams();
+  if (q) params.set('q', q);
+  if (actionType) params.set('action_type', actionType);
+  params.set('limit', '500');
+
+  try {
+    const res = await fetch(`/api/audit-logs?${params.toString()}`);
+    const json = await res.json();
+    if (json.success && json.data && json.data.length > 0) {
+      json.data.forEach(log => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${escapeHtml(log.created_at)}</td>
+          <td>${getActionBadge(log.action_type)}</td>
+          <td><b>${escapeHtml(log.actor_name || '(未選択)')}</b></td>
+          <td style="font-family: monospace;">${escapeHtml(log.client_ip)}</td>
+          <td><b>${escapeHtml(log.summary)}</b></td>
+          <td style="white-space: normal; max-width: 480px; color: #334155;">${escapeHtml(log.details)}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    } else {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = 6;
+      td.style.textAlign = 'center';
+      td.style.color = 'var(--text-muted)';
+      td.textContent = '該当する履歴ログはありません';
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    }
+  } catch (err) {
+    console.error('監査ログ取得失敗:', err);
+  }
+}
+
+let logDebounceTimer;
+document.getElementById('logSearchInput').addEventListener('input', () => {
+  clearTimeout(logDebounceTimer);
+  logDebounceTimer = setTimeout(loadAuditLogs, 200);
+});
+document.getElementById('logActionFilter').addEventListener('change', loadAuditLogs);
+document.getElementById('btnRefreshLogs').addEventListener('click', loadAuditLogs);
+
 // ナビゲーション切り替え
 document.querySelectorAll('.admin-nav-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -486,6 +556,8 @@ document.querySelectorAll('.admin-nav-btn').forEach(btn => {
       loadBackupList();
     } else if (targetId === 'pane-trash') {
       loadTrashList();
+    } else if (targetId === 'pane-logs') {
+      loadAuditLogs();
     }
   });
 });
@@ -497,5 +569,6 @@ window.addEventListener('DOMContentLoaded', async () => {
     loadAdminConfig(),
     loadBackupList(),
     loadTrashList(),
+    loadAuditLogs(),
   ]);
 });

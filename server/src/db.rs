@@ -1,4 +1,4 @@
-use crate::models::{AppConfig, Record, RecordInput};
+use crate::models::{AppConfig, AuditLog, Record, RecordInput};
 use anyhow::{bail, Result};
 use chrono::Local;
 use rusqlite::{params, Connection};
@@ -76,6 +76,17 @@ impl Db {
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS audit_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT NOT NULL,
+                client_ip TEXT NOT NULL DEFAULT '',
+                actor_name TEXT NOT NULL DEFAULT '',
+                action_type TEXT NOT NULL,
+                target_id INTEGER,
+                summary TEXT NOT NULL DEFAULT '',
+                details TEXT NOT NULL DEFAULT ''
             );
             "#,
         )?;
@@ -538,5 +549,82 @@ impl Db {
             |r| r.get(0),
         )?;
         Ok(count)
+    }
+
+    /// 監査ログ（アクセス・操作記録）を保存
+    pub fn insert_audit_log(
+        &self,
+        client_ip: &str,
+        actor_name: &str,
+        action_type: &str,
+        target_id: Option<i64>,
+        summary: &str,
+        details: &str,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        conn.execute(
+            r#"
+            INSERT INTO audit_logs (created_at, client_ip, actor_name, action_type, target_id, summary, details)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "#,
+            params![now, client_ip, actor_name, action_type, target_id, summary, details],
+        )?;
+        Ok(())
+    }
+
+    /// 監査ログ一覧を取得（最新順、最大limit件）
+    pub fn list_audit_logs(
+        &self,
+        action_filter: Option<&str>,
+        query: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<AuditLog>> {
+        let conn = self.conn.lock().unwrap();
+        let mut sql = String::from(
+            "SELECT id, created_at, client_ip, actor_name, action_type, target_id, summary, details FROM audit_logs WHERE 1=1",
+        );
+        let mut param_values: Vec<String> = Vec::new();
+
+        if let Some(af) = action_filter {
+            if !af.is_empty() {
+                sql.push_str(" AND action_type = ?");
+                param_values.push(af.to_string());
+            }
+        }
+
+        if let Some(q) = query {
+            let q = q.trim();
+            if !q.is_empty() {
+                sql.push_str(" AND (client_ip LIKE ? OR actor_name LIKE ? OR summary LIKE ? OR details LIKE ?)");
+                let pattern = format!("%{}%", q);
+                param_values.push(pattern.clone());
+                param_values.push(pattern.clone());
+                param_values.push(pattern.clone());
+                param_values.push(pattern);
+            }
+        }
+
+        sql.push_str(&format!(" ORDER BY id DESC LIMIT {}", limit.min(2000)));
+
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(param_values.iter()), |row| {
+            Ok(AuditLog {
+                id: row.get(0)?,
+                created_at: row.get(1)?,
+                client_ip: row.get(2)?,
+                actor_name: row.get(3)?,
+                action_type: row.get(4)?,
+                target_id: row.get(5)?,
+                summary: row.get(6)?,
+                details: row.get(7)?,
+            })
+        })?;
+
+        let mut logs = Vec::new();
+        for r in rows {
+            logs.push(r?);
+        }
+        Ok(logs)
     }
 }

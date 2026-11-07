@@ -200,6 +200,7 @@ pub fn import_excel_file(path: &Path, db: &Db) -> Result<usize> {
             progress_tokyo_complete: Some(get("東京へ完了")),
             progress_payment_date: Some(get("入金日")),
             version: None,
+            actor_name: None,
         };
 
         db.insert_record(&input)?;

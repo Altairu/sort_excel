@@ -28,7 +28,11 @@ function showToast(message, type = 'info') {
 
 async function checkSessionInfo() {
   try {
-    const res = await fetch('/api/session');
+    const savedActor = localStorage.getItem('sort_excel_actor') || '';
+    const params = new URLSearchParams({ log_access: 'true' });
+    if (savedActor) params.set('actor', savedActor);
+
+    const res = await fetch(`/api/session?${params.toString()}`);
     const json = await res.json();
     if (json.success && json.data && json.data.is_admin_pc) {
       const adminLink = document.getElementById('btnAdminLink');
@@ -39,6 +43,11 @@ async function checkSessionInfo() {
   } catch (err) {
     console.error('セッション確認失敗:', err);
   }
+}
+
+function getCurrentActorName() {
+  const sel = document.getElementById('currentActorSelect');
+  return sel ? sel.value : (localStorage.getItem('sort_excel_actor') || '');
 }
 
 async function loadConfig() {
@@ -56,6 +65,26 @@ async function loadConfig() {
 
 function initSelectOptions() {
   if (!currentConfig) return;
+
+  // 操作者セレクター（localStorageに保存）
+  const actorSelect = document.getElementById('currentActorSelect');
+  if (actorSelect) {
+    const savedActor = localStorage.getItem('sort_excel_actor') || '';
+    actorSelect.innerHTML = '<option value="">(未設定)</option>';
+    currentConfig.staff_order.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s;
+      opt.textContent = s;
+      actorSelect.appendChild(opt);
+    });
+    actorSelect.value = savedActor;
+    if (!actorSelect.dataset.listenerAttached) {
+      actorSelect.addEventListener('change', () => {
+        localStorage.setItem('sort_excel_actor', actorSelect.value);
+      });
+      actorSelect.dataset.listenerAttached = 'true';
+    }
+  }
 
   const staffFilter = document.getElementById('staffFilter');
   const currentStaffVal = staffFilter.value;
@@ -689,6 +718,7 @@ document.getElementById('recordForm').addEventListener('submit', async (e) => {
     progress_tokyo_complete: document.getElementById('field_progress_tokyo_complete').value,
     progress_payment_date: document.getElementById('field_progress_payment_date').value,
     version: version ? parseInt(version, 10) : undefined,
+    actor_name: getCurrentActorName(),
   };
 
   try {
@@ -729,7 +759,8 @@ document.getElementById('btnDeleteRecord').addEventListener('click', async () =>
   }
 
   try {
-    const res = await fetch(`/api/records/${id}`, { method: 'DELETE' });
+    const actor = encodeURIComponent(getCurrentActorName());
+    const res = await fetch(`/api/records/${id}?actor=${actor}`, { method: 'DELETE' });
     const json = await res.json();
     if (json.success) {
       showToast('案件を削除しました', 'success');
@@ -747,7 +778,8 @@ document.getElementById('btnDeleteRecord').addEventListener('click', async () =>
 document.getElementById('btnExport').addEventListener('click', async () => {
   showToast('Excelファイルを出力中...', 'info');
   try {
-    const res = await fetch('/api/export', { method: 'POST' });
+    const actor = encodeURIComponent(getCurrentActorName());
+    const res = await fetch(`/api/export?actor=${actor}`, { method: 'POST' });
     const json = await res.json();
     if (json.success) {
       showToast(json.data || 'Excelを出力しました', 'success');

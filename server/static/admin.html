@@ -188,6 +188,7 @@
         <span>ゴミ箱（削除済み）</span>
         <span class="stat-badge" id="navTrashCount">0</span>
       </button>
+      <button class="admin-nav-btn" data-target="pane-logs">アクセス / 操作履歴ログ</button>
     </nav>
 
     <!-- メインペイン -->
@@ -411,6 +412,53 @@
           </thead>
           <tbody id="trashListTbody"></tbody>
         </table>
+      </section>
+
+      <!-- 7. アクセス / 操作履歴ログ -->
+      <section class="admin-card" id="pane-logs">
+        <h3>アクセス / 操作履歴ログ</h3>
+        <p class="section-desc">
+          誰が・いつ・どのPC（IPアドレス）から画面を開き、どの案件を登録 / 更新 / 削除したかの履歴を確認できます。更新時は変更前後の差分も記録されます。
+        </p>
+
+        <div class="filter-card" style="margin-bottom: 14px;">
+          <div class="search-box">
+            <input type="text" id="logSearchInput" placeholder="お客様氏名、操作者名、IPアドレス、変更内容で検索...">
+          </div>
+          <div class="filter-group">
+            <label>種別:</label>
+            <select id="logActionFilter">
+              <option value="">すべて</option>
+              <option value="CREATE">新規登録</option>
+              <option value="UPDATE">案件更新</option>
+              <option value="DELETE">ゴミ箱へ削除</option>
+              <option value="RESTORE">ゴミ箱から復元</option>
+              <option value="PURGE">完全削除</option>
+              <option value="EXPORT">手動Excel出力</option>
+              <option value="CONFIG">管理者設定変更</option>
+              <option value="IMPORT">Excelインポート</option>
+              <option value="BACKUP">バックアップ操作</option>
+              <option value="ACCESS">画面アクセス</option>
+            </select>
+          </div>
+          <button class="btn btn-sm btn-outline" id="btnRefreshLogs">最新の状態に更新</button>
+        </div>
+
+        <div class="table-responsive" style="max-height: 550px;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>日時</th>
+                <th>種別</th>
+                <th>操作者</th>
+                <th>接続元IP</th>
+                <th>概要</th>
+                <th>変更内容 / 詳細</th>
+              </tr>
+            </thead>
+            <tbody id="auditLogsTbody"></tbody>
+          </table>
+        </div>
       </section>
     </div>
   </div>

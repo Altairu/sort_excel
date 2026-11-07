@@ -78,6 +78,7 @@ pub struct RecordInput {
     pub progress_tokyo_complete: Option<String>,
     pub progress_payment_date: Option<String>,
     pub version: Option<i64>,
+    pub actor_name: Option<String>,
 }
 
 /// ソートキー設定
@@ -85,6 +86,19 @@ pub struct RecordInput {
 pub struct SortKeyConfig {
     pub key: String,
     pub ascending: bool,
+}
+
+/// アクセス・操作履歴ログ
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditLog {
+    pub id: i64,
+    pub created_at: String,
+    pub client_ip: String,
+    pub actor_name: String,
+    pub action_type: String, // ACCESS, CREATE, UPDATE, DELETE, RESTORE, PURGE, EXPORT, CONFIG, IMPORT, BACKUP
+    pub target_id: Option<i64>,
+    pub summary: String,
+    pub details: String,
 }
 
 /// アプリケーション全体設定
