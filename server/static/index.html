@@ -459,8 +459,13 @@
         </p>
 
         <label style="margin-bottom: 8px;">リストから自分の名前をクリック:</label>
-        <div id="actorButtonsGrid" style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px;">
+        <div id="actorButtonsGrid" style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px;">
           <!-- JSで担当者ボタンを生成 -->
+        </div>
+
+        <div style="margin-bottom: 16px; padding: 10px 12px; background-color: #f8fafc; border: 1px dashed var(--border); border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 12px; color: #475569;">本番の担当者リストに追加せず動作確認を行う場合:</span>
+          <button type="button" class="btn btn-sm btn-outline" id="btnSelectTestActor" style="font-weight: 600;">テスト用（動作確認）で入る</button>
         </div>
 
         <div style="border-top: 1px solid var(--border); padding-top: 16px;">

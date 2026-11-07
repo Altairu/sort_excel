@@ -442,6 +442,7 @@
             </select>
           </div>
           <button class="btn btn-sm btn-outline" id="btnRefreshLogs">最新の状態に更新</button>
+          <button class="btn btn-sm btn-outline" id="btnClearTestLogs" style="color: var(--danger); border-color: var(--danger);">テスト用ログを一括消去</button>
         </div>
 
         <div class="table-responsive" style="max-height: 550px;">
@@ -454,6 +455,7 @@
                 <th>接続元IP</th>
                 <th>概要</th>
                 <th>変更内容 / 詳細</th>
+                <th>操作</th>
               </tr>
             </thead>
             <tbody id="auditLogsTbody"></tbody>

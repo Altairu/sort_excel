@@ -627,4 +627,25 @@ impl Db {
         }
         Ok(logs)
     }
+
+    /// 指定IDの監査ログを削除
+    pub fn delete_audit_log(&self, id: i64) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM audit_logs WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    /// テスト用または全監査ログのクリア
+    pub fn clear_audit_logs(&self, only_test: bool) -> Result<usize> {
+        let conn = self.conn.lock().unwrap();
+        let count = if only_test {
+            conn.execute(
+                "DELETE FROM audit_logs WHERE actor_name LIKE '%テスト%' OR summary LIKE '%テスト%'",
+                [],
+            )?
+        } else {
+            conn.execute("DELETE FROM audit_logs", [])?
+        };
+        Ok(count)
+    }
 }

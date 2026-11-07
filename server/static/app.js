@@ -9,6 +9,7 @@ let selectedDateKey = null;
 
 const CUSTOM_OPTION_VALUE = '__CUSTOM__';
 const ADD_ACTOR_OPTION_VALUE = '__ADD_ACTOR__';
+const TEST_ACTOR_NAME = 'テスト用（動作確認）';
 
 const SELECT_WITH_CUSTOM_FIELDS = [
   'field_status',
@@ -139,10 +140,16 @@ async function loadConfig() {
 function initSelectOptions() {
   if (!currentConfig) return;
 
-  // 操作者セレクター（localStorageに保存 + リストになければ追加可能）
+  // 操作者セレクター（localStorageに保存 + テスト用アカウント + リストになければ追加可能）
   const actorSelect = document.getElementById('currentActorSelect');
   if (actorSelect) {
-    const savedActor = localStorage.getItem('sort_excel_actor') || '';
+    let savedActor = localStorage.getItem('sort_excel_actor') || '';
+    // 以前テスト入力された Altair がブラウザに残っていた場合は自動的にテスト用へ切り替え
+    if (savedActor.toLowerCase() === 'altair') {
+      savedActor = TEST_ACTOR_NAME;
+      localStorage.setItem('sort_excel_actor', savedActor);
+    }
+
     actorSelect.innerHTML = '<option value="">(未設定 - クリックして選択)</option>';
     currentConfig.staff_order.forEach(s => {
       const opt = document.createElement('option');
@@ -150,7 +157,13 @@ function initSelectOptions() {
       opt.textContent = s;
       actorSelect.appendChild(opt);
     });
-    if (savedActor && !currentConfig.staff_order.includes(savedActor)) {
+
+    const testOpt = document.createElement('option');
+    testOpt.value = TEST_ACTOR_NAME;
+    testOpt.textContent = `[テスト] ${TEST_ACTOR_NAME}`;
+    actorSelect.appendChild(testOpt);
+
+    if (savedActor && savedActor !== TEST_ACTOR_NAME && !currentConfig.staff_order.includes(savedActor)) {
       const opt = document.createElement('option');
       opt.value = savedActor;
       opt.textContent = savedActor;
@@ -916,6 +929,10 @@ document.getElementById('btnCancelEdit').addEventListener('click', closeEditPane
 document.getElementById('panelBackdrop').addEventListener('click', closeEditPanel);
 
 // 初期化実行
+document.getElementById('btnSelectTestActor').addEventListener('click', async () => {
+  await setCurrentActorName(TEST_ACTOR_NAME, true);
+  showToast(`操作者を ${TEST_ACTOR_NAME} に設定しました`, 'info');
+});
 document.getElementById('btnAddAndSelectActor').addEventListener('click', addAndSelectNewActor);
 document.getElementById('newActorNameInput').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
