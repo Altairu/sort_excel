@@ -905,6 +905,54 @@ document.getElementById('btnOkHelp').addEventListener('click', () => {
   document.getElementById('helpModal').classList.remove('active');
 });
 
+// 不具合・改善要望報告モーダル
+function openReportModal() {
+  document.getElementById('reportForm').reset();
+  document.getElementById('reportActorName').value = getCurrentActorName() || '';
+  document.getElementById('reportModal').classList.add('active');
+}
+
+function closeReportModal() {
+  document.getElementById('reportModal').classList.remove('active');
+}
+
+document.getElementById('btnOpenReport').addEventListener('click', openReportModal);
+document.getElementById('btnCloseReport').addEventListener('click', closeReportModal);
+document.getElementById('btnCancelReport').addEventListener('click', closeReportModal);
+
+document.getElementById('reportForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+
+  const category = document.getElementById('reportCategory').value;
+  const reporter_name = document.getElementById('reportActorName').value.trim() || getCurrentActorName();
+  const title = document.getElementById('reportTitle').value.trim();
+  const description = document.getElementById('reportDescription').value.trim();
+  const page_context = `表示タブ: ${activeViewTab} / ブラウザ: ${navigator.userAgent}`;
+
+  try {
+    const res = await fetch('/api/reports', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        reporter_name,
+        category,
+        title,
+        description,
+        page_context,
+      }),
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.data || '管理者へ報告を送信しました', 'success');
+      closeReportModal();
+    } else {
+      showToast(json.error || '送信に失敗しました', 'error');
+    }
+  } catch (err) {
+    showToast('通信エラーが発生しました', 'error');
+  }
+});
+
 // 全画面表示トグル
 const btnFullscreen = document.getElementById('btnFullscreen');
 function updateFullscreenUI() {

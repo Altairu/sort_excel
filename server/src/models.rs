@@ -95,10 +95,25 @@ pub struct AuditLog {
     pub created_at: String,
     pub client_ip: String,
     pub actor_name: String,
-    pub action_type: String, // ACCESS, CREATE, UPDATE, DELETE, RESTORE, PURGE, EXPORT, CONFIG, IMPORT, BACKUP
+    pub action_type: String, // ACCESS, CREATE, UPDATE, DELETE, RESTORE, PURGE, EXPORT, CONFIG, IMPORT, BACKUP, REPORT
     pub target_id: Option<i64>,
     pub summary: String,
     pub details: String,
+}
+
+/// 不具合・改善要望レポート（一般使用者 → 管理者 → GitHub Issues）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BugReport {
+    pub id: i64,
+    pub created_at: String,
+    pub reporter_name: String,
+    pub client_ip: String,
+    pub category: String, // 不具合, 改善要望, 質問・その他
+    pub title: String,
+    pub description: String,
+    pub page_context: String,
+    pub status: String, // 未対応, 確認中, Issue起票済, 対応完了
+    pub admin_note: String,
 }
 
 /// アプリケーション全体設定

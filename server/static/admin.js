@@ -28,6 +28,11 @@ async function loadAdminStats() {
       document.getElementById('adminStatTotal').textContent = json.data.total_count;
       document.getElementById('adminStatTrash').textContent = json.data.trash_count;
       document.getElementById('navTrashCount').textContent = json.data.trash_count;
+      const openReports = json.data.open_reports_count || 0;
+      const statRep = document.getElementById('adminStatReports');
+      const navRep = document.getElementById('navReportCount');
+      if (statRep) statRep.textContent = openReports;
+      if (navRep) navRep.textContent = openReports;
     }
   } catch (err) {
     console.error('統計取得失敗:', err);
@@ -687,6 +692,7 @@ function getActionBadge(actionType) {
     CONFIG: { label: '設定変更', cls: 'stat-badge' },
     IMPORT: { label: '一括取込', cls: 'badge-active' },
     BACKUP: { label: 'バックアップ', cls: 'stat-badge' },
+    REPORT: { label: '不具合・要望報告', cls: 'badge-pending' },
     ACCESS: { label: '画面アクセス', cls: 'stat-badge' },
   };
   const item = map[actionType] || { label: actionType, cls: 'stat-badge' };
@@ -785,6 +791,137 @@ document.getElementById('logSearchInput').addEventListener('input', () => {
 document.getElementById('logActionFilter').addEventListener('change', loadAuditLogs);
 document.getElementById('btnRefreshLogs').addEventListener('click', loadAuditLogs);
 
+// ==========================================================
+// 不具合報告 / 要望管理 & GitHub Issues 起票連携
+// ==========================================================
+const GITHUB_ISSUES_NEW_URL = 'https://github.com/Altairu/sort_excel/issues/new';
+
+function buildGitHubIssueUrl(report) {
+  const prefix = report.category === '改善要望' ? '[要望]' : '[不具合報告]';
+  const issueTitle = `${prefix} ${report.title}`;
+  const issueBody = [
+    `### 報告種別`,
+    `${report.category}`,
+    ``,
+    `### 報告情報`,
+    `- 社内報告ID: #${report.id}`,
+    `- 発生・受信日時: ${report.created_at}`,
+    `- 報告者: ${report.reporter_name || '(未記入)'}`,
+    `- 環境・画面コンテキスト: ${report.page_context || '-'}`,
+    ``,
+    `### 詳細内容・再現手順`,
+    `${report.description}`,
+  ].join('\n');
+
+  const params = new URLSearchParams({
+    title: issueTitle,
+    body: issueBody,
+  });
+  return `${GITHUB_ISSUES_NEW_URL}?${params.toString()}`;
+}
+
+async function loadBugReports() {
+  const tbody = document.getElementById('bugReportsTbody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  try {
+    const res = await fetch('/api/reports');
+    const json = await res.json();
+    if (json.success && json.data && json.data.length > 0) {
+      json.data.forEach(rep => {
+        const tr = document.createElement('tr');
+        const ghUrl = buildGitHubIssueUrl(rep);
+
+        let catCls = 'badge-pending';
+        if (rep.category === '改善要望') catCls = 'badge-active';
+        if (rep.category === '質問・その他') catCls = 'stat-badge';
+
+        tr.innerHTML = `
+          <td><b>#${escapeHtml(String(rep.id))}</b></td>
+          <td>${escapeHtml(rep.created_at)}</td>
+          <td><span class="stat-badge ${catCls}">${escapeHtml(rep.category)}</span></td>
+          <td>
+            <div><b>${escapeHtml(rep.reporter_name || '(未記入)')}</b></div>
+            <div style="font-size:11px; color:var(--text-muted); font-family:monospace;">${escapeHtml(rep.client_ip)}</div>
+          </td>
+          <td style="white-space: normal; max-width: 480px;">
+            <div style="font-weight:700; color:#0f172a; margin-bottom:4px;">${escapeHtml(rep.title)}</div>
+            <div style="color:#334155; font-size:13px; white-space:pre-wrap;">${escapeHtml(rep.description)}</div>
+            <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">${escapeHtml(rep.page_context)}</div>
+          </td>
+          <td>
+            <select class="form-control report-status-select" data-id="${escapeHtml(String(rep.id))}" style="width: 130px; font-weight:600;">
+              <option value="未対応" ${rep.status === '未対応' ? 'selected' : ''}>未対応</option>
+              <option value="確認中" ${rep.status === '確認中' ? 'selected' : ''}>確認中</option>
+              <option value="Issue起票済" ${rep.status === 'Issue起票済' ? 'selected' : ''}>Issue起票済</option>
+              <option value="対応完了" ${rep.status === '対応完了' ? 'selected' : ''}>対応完了</option>
+            </select>
+          </td>
+          <td>
+            <a href="${escapeHtml(ghUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-primary gh-issue-btn" data-id="${escapeHtml(String(rep.id))}" style="text-decoration:none; white-space:nowrap;">
+              GitHub Issueを作成 ↗
+            </a>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      tbody.querySelectorAll('.report-status-select').forEach(sel => {
+        sel.addEventListener('change', async () => {
+          const id = sel.dataset.id;
+          const status = sel.value;
+          try {
+            const r = await fetch(`/api/reports/${id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ status }),
+            });
+            const j = await r.json();
+            if (j.success) {
+              showToast(`報告 #${id} のステータスを「${status}」に更新しました`, 'success');
+              loadAdminStats();
+            }
+          } catch (e) {
+            showToast('ステータス更新に失敗しました', 'error');
+          }
+        });
+      });
+
+      tbody.querySelectorAll('.gh-issue-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const id = btn.dataset.id;
+          // GitHub起票画面を開いた際にステータスを自動的に「Issue起票済」へ進める
+          try {
+            await fetch(`/api/reports/${id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ status: 'Issue起票済' }),
+            });
+            loadBugReports();
+            loadAdminStats();
+          } catch (e) {
+            console.error(e);
+          }
+        });
+      });
+    } else {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = 7;
+      td.style.textAlign = 'center';
+      td.style.color = 'var(--text-muted)';
+      td.textContent = '現在届いている不具合報告や要望はありません';
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    }
+  } catch (err) {
+    console.error('不具合報告一覧取得失敗:', err);
+  }
+}
+
+document.getElementById('btnRefreshReports').addEventListener('click', loadBugReports);
+
 // ナビゲーション切り替え
 document.querySelectorAll('.admin-nav-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -799,6 +936,8 @@ document.querySelectorAll('.admin-nav-btn').forEach(btn => {
       loadBackupList();
     } else if (targetId === 'pane-trash') {
       loadTrashList();
+    } else if (targetId === 'pane-reports') {
+      loadBugReports();
     } else if (targetId === 'pane-logs') {
       loadAuditLogs();
     }
@@ -812,6 +951,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     loadAdminConfig(),
     loadBackupList(),
     loadTrashList(),
+    loadBugReports(),
     loadAuditLogs(),
   ]);
 });

@@ -155,6 +155,7 @@
       <div class="stats-bar">
         <span class="stat-badge">有効案件: <b id="adminStatTotal">-</b></span>
         <span class="stat-badge">ゴミ箱: <b id="adminStatTrash">-</b></span>
+        <span class="stat-badge badge-pending">未対応の報告: <b id="adminStatReports">0</b></span>
       </div>
     </div>
     <div class="header-right">
@@ -189,7 +190,12 @@
         <span>ゴミ箱（削除済み）</span>
         <span class="stat-badge" id="navTrashCount">0</span>
       </button>
+      <button class="admin-nav-btn" data-target="pane-reports">
+        <span>不具合報告 / GitHub起票</span>
+        <span class="stat-badge badge-pending" id="navReportCount">0</span>
+      </button>
       <button class="admin-nav-btn" data-target="pane-logs">アクセス履歴 / 権限・IP制限</button>
+      <button class="admin-nav-btn" data-target="pane-license">ライセンス / 権利表記</button>
     </nav>
 
     <!-- メインペイン -->
@@ -472,6 +478,7 @@
               <option value="CONFIG">管理者設定変更</option>
               <option value="IMPORT">Excelインポート</option>
               <option value="BACKUP">バックアップ操作</option>
+              <option value="REPORT">不具合・要望報告</option>
               <option value="ACCESS">画面アクセス</option>
             </select>
           </div>
@@ -492,6 +499,100 @@
             </thead>
             <tbody id="auditLogsTbody"></tbody>
           </table>
+        </div>
+      </section>
+
+      <!-- 8. 不具合報告 / 要望管理 & GitHub Issues連携 -->
+      <section class="admin-card" id="pane-reports">
+        <h3>不具合報告 / 要望管理（GitHub Issues 起票連携）</h3>
+        <p class="section-desc">
+          社員（一般使用者）から送信された不具合や改善要望の一覧です。<br>
+          管理者が内容を確認し、開発修正が必要なものは GitHub Issueを作成 ボタンから https://github.com/Altairu/sort_excel/issues へワンクリックで起票できます。
+        </p>
+
+        <div style="margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center;">
+          <span class="text-muted">起票先リポジトリ: https://github.com/Altairu/sort_excel</span>
+          <button class="btn btn-sm btn-outline" id="btnRefreshReports">一覧を更新</button>
+        </div>
+
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>受信日時</th>
+                <th>種類</th>
+                <th>報告者 / IP</th>
+                <th>件名と詳細内容</th>
+                <th>ステータス</th>
+                <th>GitHub連携 / 操作</th>
+              </tr>
+            </thead>
+            <tbody id="bugReportsTbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 9. ライセンス / 権利表記（管理者画面限定） -->
+      <section class="admin-card" id="pane-license">
+        <h3>ライセンス / 権利表記</h3>
+        <p class="section-desc">
+          本システムの著作権表記および使用しているオープンソースソフトウェア（OSS）のライセンス一覧です（管理者画面のみに表示されます）。
+        </p>
+
+        <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 18px; margin-bottom: 20px;">
+          <h4 style="margin-bottom: 8px; color: #0f172a;">受託確認票 業務管理・自動ソートシステム (sort_excel)</h4>
+          <p style="font-size: 13px; color: #334155; line-height: 1.7;">
+            Copyright (c) 2026 Altairu / sort_excel Project Contributors. All rights reserved.<br>
+            リポジトリ: <a href="https://github.com/Altairu/sort_excel" target="_blank" rel="noopener noreferrer">https://github.com/Altairu/sort_excel</a>
+          </p>
+        </div>
+
+        <h4 class="section-title">使用している主なオープンソースライブラリとライセンス</h4>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>ライブラリ / コンポーネント名</th>
+              <th>用途</th>
+              <th>ライセンス種別</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><b>Rust Standard Library / Tokio / Axum / Tower</b></td>
+              <td>非同期Webサーバー基盤およびHTTPルーティング</td>
+              <td>MIT License / Apache License 2.0</td>
+            </tr>
+            <tr>
+              <td><b>SQLite / Rusqlite (bundled)</b></td>
+              <td>組み込みリレーショナルデータベースエンジン</td>
+              <td>Public Domain (SQLite) / MIT License (Rusqlite)</td>
+            </tr>
+            <tr>
+              <td><b>Calamine</b></td>
+              <td>Excel (.xlsx) ファイル読み込みエンジン</td>
+              <td>MIT License</td>
+            </tr>
+            <tr>
+              <td><b>rust_xlsxwriter</b></td>
+              <td>Excel (.xlsx) 書式付き高速生成エンジン</td>
+              <td>MIT License / Apache License 2.0</td>
+            </tr>
+            <tr>
+              <td><b>Serde / serde_json / Chrono / Rust-Embed</b></td>
+              <td>JSONシリアライズ、日時処理、静的アセット単一バイナリ埋め込み</td>
+              <td>MIT License / Apache License 2.0</td>
+            </tr>
+            <tr>
+              <td><b>windows-sys / open</b></td>
+              <td>Windowsネイティブタスクトレイ常駐およびブラウザ起動</td>
+              <td>MIT License / Apache License 2.0</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div style="margin-top: 20px; font-size: 12px; color: var(--text-muted); line-height: 1.6;">
+          Permission is hereby granted, free of charge, to any person obtaining a copy of the MIT-licensed components to deal in the Software without restriction, subject to the standard MIT License and Apache License 2.0 terms included in each upstream crate.
         </div>
       </section>
     </div>

@@ -1,4 +1,4 @@
-use crate::models::{AppConfig, AuditLog, Record, RecordInput};
+use crate::models::{AppConfig, AuditLog, BugReport, Record, RecordInput};
 use anyhow::{bail, Result};
 use chrono::Local;
 use rusqlite::{params, Connection};
@@ -87,6 +87,19 @@ impl Db {
                 target_id INTEGER,
                 summary TEXT NOT NULL DEFAULT '',
                 details TEXT NOT NULL DEFAULT ''
+            );
+
+            CREATE TABLE IF NOT EXISTS bug_reports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT NOT NULL,
+                reporter_name TEXT NOT NULL DEFAULT '',
+                client_ip TEXT NOT NULL DEFAULT '',
+                category TEXT NOT NULL DEFAULT '不具合',
+                title TEXT NOT NULL,
+                description TEXT NOT NULL,
+                page_context TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT '未対応',
+                admin_note TEXT NOT NULL DEFAULT ''
             );
             "#,
         )?;
@@ -626,5 +639,75 @@ impl Db {
             logs.push(r?);
         }
         Ok(logs)
+    }
+
+    /// 不具合・要望レポートを保存
+    pub fn insert_bug_report(
+        &self,
+        reporter_name: &str,
+        client_ip: &str,
+        category: &str,
+        title: &str,
+        description: &str,
+        page_context: &str,
+    ) -> Result<i64> {
+        let conn = self.conn.lock().unwrap();
+        let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        conn.execute(
+            r#"
+            INSERT INTO bug_reports (created_at, reporter_name, client_ip, category, title, description, page_context, status, admin_note)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, '未対応', '')
+            "#,
+            params![now, reporter_name, client_ip, category, title, description, page_context],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// 不具合・要望レポート一覧を取得
+    pub fn list_bug_reports(&self) -> Result<Vec<BugReport>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, created_at, reporter_name, client_ip, category, title, description, page_context, status, admin_note FROM bug_reports ORDER BY id DESC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(BugReport {
+                id: row.get(0)?,
+                created_at: row.get(1)?,
+                reporter_name: row.get(2)?,
+                client_ip: row.get(3)?,
+                category: row.get(4)?,
+                title: row.get(5)?,
+                description: row.get(6)?,
+                page_context: row.get(7)?,
+                status: row.get(8)?,
+                admin_note: row.get(9)?,
+            })
+        })?;
+        let mut list = Vec::new();
+        for r in rows {
+            list.push(r?);
+        }
+        Ok(list)
+    }
+
+    /// 不具合・要望レポートのステータスおよび管理者メモを更新
+    pub fn update_bug_report(&self, id: i64, status: &str, admin_note: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE bug_reports SET status = ?1, admin_note = ?2 WHERE id = ?3",
+            params![status, admin_note, id],
+        )?;
+        Ok(())
+    }
+
+    /// 未対応の不具合レポート件数を取得
+    pub fn count_open_bug_reports(&self) -> Result<usize> {
+        let conn = self.conn.lock().unwrap();
+        let cnt: i64 = conn.query_row(
+            "SELECT count(*) FROM bug_reports WHERE status = '未対応' OR status = '確認中'",
+            [],
+            |r| r.get(0),
+        )?;
+        Ok(cnt as usize)
     }
 }

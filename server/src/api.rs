@@ -1147,6 +1147,134 @@ pub async fn get_sorted_views(State(state): State<Arc<AppState>>) -> impl IntoRe
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct CreateBugReportRequest {
+    pub reporter_name: Option<String>,
+    pub category: Option<String>,
+    pub title: String,
+    pub description: String,
+    pub page_context: Option<String>,
+}
+
+/// 一般使用者からの不具合・改善要望報告を受け付ける（全クライアント利用可 -> 管理者へ通知）
+pub async fn create_bug_report(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<CreateBugReportRequest>,
+) -> impl IntoResponse {
+    let title = payload.title.trim().to_string();
+    let description = payload.description.trim().to_string();
+    if title.is_empty() || description.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiResponse::err("件名と詳細内容を入力してください")),
+        );
+    }
+
+    let reporter = payload
+        .reporter_name
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let category = payload
+        .category
+        .as_deref()
+        .unwrap_or("不具合")
+        .trim()
+        .to_string();
+    let page_ctx = payload
+        .page_context
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let client_ip = format_client_ip(&addr);
+
+    match state.db.insert_bug_report(
+        &reporter,
+        &client_ip,
+        &category,
+        &title,
+        &description,
+        &page_ctx,
+    ) {
+        Ok(report_id) => {
+            let _ = state.db.insert_audit_log(
+                &client_ip,
+                &reporter,
+                "REPORT",
+                Some(report_id),
+                &format!("[{}] {} (報告ID:{})", category, title, report_id),
+                &description,
+            );
+            (
+                StatusCode::CREATED,
+                Json(ApiResponse::ok(
+                    "管理者へ報告を送信しました。ご協力ありがとうございます。",
+                )),
+            )
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::err(e.to_string())),
+        ),
+    }
+}
+
+/// 不具合・要望レポート一覧取得（管理者のみ許可）
+pub async fn list_bug_reports(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    if !is_admin_request(&addr, &state) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ApiResponse::err(
+                "不具合報告の管理は管理者画面からのみアクセスできます",
+            )),
+        );
+    }
+
+    match state.db.list_bug_reports() {
+        Ok(list) => (StatusCode::OK, Json(ApiResponse::ok(list))),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::err(e.to_string())),
+        ),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateBugReportRequest {
+    pub status: String,
+    pub admin_note: Option<String>,
+}
+
+/// 不具合・要望レポートのステータス更新（管理者のみ許可）
+pub async fn update_bug_report_status(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    Json(payload): Json<UpdateBugReportRequest>,
+) -> impl IntoResponse {
+    if !is_admin_request(&addr, &state) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ApiResponse::err("管理者画面からのみ実行できます")),
+        );
+    }
+
+    let note = payload.admin_note.as_deref().unwrap_or("");
+    match state.db.update_bug_report(id, &payload.status, note) {
+        Ok(()) => (StatusCode::OK, Json(ApiResponse::ok("ステータスを更新しました"))),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::err(e.to_string())),
+        ),
+    }
+}
+
 /// 統計情報取得
 #[derive(Debug, Serialize)]
 pub struct StatsData {
@@ -1155,6 +1283,7 @@ pub struct StatsData {
     pub pending_count: usize,
     pub completed_count: usize,
     pub trash_count: usize,
+    pub open_reports_count: usize,
 }
 
 pub async fn get_stats(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -1172,6 +1301,7 @@ pub async fn get_stats(State(state): State<Arc<AppState>>) -> impl IntoResponse 
                 .list_deleted_records()
                 .map(|v| v.len())
                 .unwrap_or(0);
+            let open_reports_count = state.db.count_open_bug_reports().unwrap_or(0);
 
             (
                 StatusCode::OK,
@@ -1181,6 +1311,7 @@ pub async fn get_stats(State(state): State<Arc<AppState>>) -> impl IntoResponse 
                     pending_count: pending,
                     completed_count: completed,
                     trash_count,
+                    open_reports_count,
                 })),
             )
         }

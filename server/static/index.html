@@ -29,6 +29,7 @@
       <button class="btn btn-secondary" id="btnExport">Excelを今すぐ出力</button>
       <button class="btn btn-outline" id="btnFullscreen" title="画面いっぱいに広げて表示します (Escで解除)">全画面表示</button>
       <button class="btn btn-outline" id="btnHelp">使い方ガイド</button>
+      <button class="btn btn-outline" id="btnOpenReport">不具合 / 要望報告</button>
       <a href="/admin" class="btn btn-outline" id="btnAdminLink" style="display: none; text-decoration: none;">管理者設定画面へ</a>
     </div>
   </header>
@@ -415,36 +416,107 @@
 
   <!-- 使い方ガイドモーダル -->
   <div class="modal" id="helpModal">
-    <div class="modal-content modal-lg">
+    <div class="modal-content modal-lg" style="max-width: 860px;">
       <div class="modal-header">
         <h3>使い方ガイド / 操作マニュアル</h3>
         <button class="close-btn" id="btnCloseHelp">&times;</button>
       </div>
       <div class="modal-body help-body">
-        <h4>日常の使い方の流れ</h4>
-        <p>受託した案件の登録や、日時の決まった案件の更新はすべてこの画面から行います。<br>
-        画面で保存した内容は、共有フォルダの 受託確認票.xlsx へ即座に自動反映されます。</p>
+        <h4>このシステムの基本的な仕組み</h4>
+        <p>受託した案件の新規登録や、融資実行日 / 金消日 / 担当者などの更新をブラウザから安全に行えるシステムです。<br>
+        複数の社員が同時に操作してもデータが壊れることがなく、画面で保存した瞬間に共有フォルダの 受託確認票.xlsx が最新の状態で自動生成されます。</p>
 
-        <h4>案件の更新手順</h4>
+        <h4>操作者（あなたの名前）の設定と切り替え</h4>
         <ul>
-          <li>上部の検索窓にお客様氏名や物件名を入力して案件を探します。</li>
-          <li>一覧の行をクリックすると、右側に編集パネルが開きます。</li>
-          <li>融資実行日や金消日、担当者などを選択および入力し、保存してExcel更新を押します。</li>
+          <li>初回アクセス時に表示されるポップアップで自分の名前をクリックすると、ブラウザに記憶されます。</li>
+          <li>画面右上の 操作者 プルダウンからいつでも自分の名前を確認したり、別の担当者へ切り替えたりできます。</li>
+          <li>リストに自分の名前がない場合は、プルダウン一番下の + リストにない名前を追加... から新しい名前を登録できます。</li>
+          <li>動作テストを行う際は、本番の担当者リストに影響しない テスト用（動作確認） を選んで操作してください。</li>
         </ul>
 
-        <h4>選択肢にない項目を入力したい場合</h4>
+        <h4>上部5つの画面タブの使い分け</h4>
         <ul>
-          <li>担当、形態、依頼内容、当日申請、ステータスの各選択肢の一番下に その他（自由入力...） があります。</li>
-          <li>これを選ぶとすぐ下にテキスト入力欄が表示され、選択肢にない特殊な内容でも自由に記入して保存できます。</li>
+          <li>案件一覧（全件管理）: 登録されているすべての案件を検索や担当者・ステータス絞り込みで確認する基本画面です。</li>
+          <li>日付別スケジュール（ソート済み）: 左側のカレンダー日付リストをクリックすると、その日の融資実行日と金消日 / 面談日の予定が、担当者の優先順位と時間順に整列して表示されます。今日 / 直近へ ボタンで当日の予定へすぐ移動できます。</li>
+          <li>融資実行日順シート / 金消日・面談日順シート / 統合データシート: Excelの各シートと同じ並び順で一覧表示されます。上部検索枠でそのシート内の絞り込みも可能です。</li>
+          <li>どのタブを表示しているときでも、表の行をクリックすればそのまま右側に編集パネルが開いて内容を修正できます。</li>
         </ul>
 
-        <h4>共有Excelの閲覧について</h4>
-        <p>共有フォルダにある 受託確認票.xlsx は、誰でも直接開いて確認や印刷ができます。<br>
-        ただし、Excel上で直接セルを書き換えて保存すると自動出力で上書きされるため、データの更新はこのWeb画面から行ってください。</p>
+        <h4>新規登録と編集のポイント（自由入力対応）</h4>
+        <ul>
+          <li>新規登録は右上の + 新規案件を登録 ボタンから、既存案件の修正は一覧の行をクリックして行います。</li>
+          <li>ステータス、担当、形態、依頼内容、当日申請は表記ゆれを防ぐため選択式になっていますが、選択肢の一番下にある その他（自由入力...） を選ぶとテキスト入力欄が開き、選択肢にない特殊な内容でも直接記入して保存できます。</li>
+          <li>融資実行日や金消日がまだ確定していない場合は、ステータスを 日程未定 または リスケ にし、日付の横にあるメモ / 補足欄に予定時期（例: 来年3月予定）を記入してください。</li>
+          <li>金消場所や先方書士、備考欄は改行して複数行で入力できます（売主側と買主側の情報を分けて書く場合などに便利です）。</li>
+          <li>もし同じ案件を別の人が先に更新していた場合は、上書きを防ぐための通知が表示されますので、一度画面を更新してから再度編集してください。</li>
+        </ul>
+
+        <h4>便利な機能（全画面表示 / Excel出力 / 削除と復元）</h4>
+        <ul>
+          <li>全画面表示: 右上の 全画面表示 ボタンを押すと画面いっぱいに表が広がり、たくさんの案件を一度に見渡せます（Escキーで元に戻ります）。</li>
+          <li>Excelを今すぐ出力: 保存時に自動でExcelも更新されますが、右上のボタンから手動で最新Excelを再出力することも可能です。</li>
+          <li>案件の削除: 編集パネル左下の 削除 ボタンを押すと一覧から消えますが、データ自体は管理者のゴミ箱に保管されるため、誤って消してしまった場合でも管理者に連絡すればいつでも復元できます。</li>
+        </ul>
+
+        <h4>共有フォルダの 受託確認票.xlsx を見るときの注意</h4>
+        <ul>
+          <li>共有フォルダのExcelファイルは、いつでも開いて閲覧や印刷を行えます。</li>
+          <li>ただし、Excel上で直接セルを書き換えて保存しても、次に誰かがWeb画面から保存した際にWeb側のデータで上書きされます。データの修正は必ずこのWeb画面から行ってください。</li>
+          <li>また、Excelファイルを開いたままにしていると自動更新の妨げになるため、確認や印刷が終わったらExcelを閉じておくようご協力をお願いします。</li>
+        </ul>
+
+        <h4>不具合を見つけたときや改善要望がある場合</h4>
+        <p>画面右上の 不具合 / 要望報告 ボタンから、気になった点やエラー内容を入力して送信してください。内容はいったんシステム管理者へ報告され、管理者が確認のうえ対応いたします。</p>
       </div>
       <div class="modal-footer">
         <button class="btn btn-primary" id="btnOkHelp">確認しました</button>
       </div>
+    </div>
+  </div>
+
+  <!-- 不具合・改善要望報告モーダル（一般使用者 → 管理者へ送信） -->
+  <div class="modal" id="reportModal">
+    <div class="modal-content" style="max-width: 580px;">
+      <div class="modal-header">
+        <h3>不具合 / 改善要望を管理者へ報告</h3>
+        <button class="close-btn" id="btnCloseReport">&times;</button>
+      </div>
+      <form id="reportForm">
+        <div class="modal-body">
+          <p style="color: #475569; margin-bottom: 14px; font-size: 13px;">
+            システムを使っていて気づいた不具合や、使いにくい点・改善してほしい要望があればご記入ください。送信された内容はまずシステム管理者へ届きます。
+          </p>
+
+          <div class="form-row">
+            <div class="form-group col-6">
+              <label>報告の種類</label>
+              <select id="reportCategory" class="form-control">
+                <option value="不具合">不具合・エラー報告</option>
+                <option value="改善要望">使いやすさ・改善要望</option>
+                <option value="質問・その他">質問・その他</option>
+              </select>
+            </div>
+            <div class="form-group col-6">
+              <label>報告者名</label>
+              <input type="text" id="reportActorName" class="form-control" placeholder="あなたの名前">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>件名（どんな症状・要望か一言で） <span class="required">*</span></label>
+            <input type="text" id="reportTitle" class="form-control" required placeholder="例: ○○の画面で保存ボタンを押しても反応しない">
+          </div>
+
+          <div class="form-group">
+            <label>詳しい内容・発生した手順 <span class="required">*</span></label>
+            <textarea id="reportDescription" class="form-control" rows="5" required placeholder="どのような操作をしたときに起きたか、どの案件（IDなど）で起きたか、どうなってほしいか等を記入してください"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" id="btnCancelReport">キャンセル</button>
+          <button type="submit" class="btn btn-primary">管理者へ報告を送信</button>
+        </div>
+      </form>
     </div>
   </div>
 
