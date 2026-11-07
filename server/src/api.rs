@@ -171,6 +171,8 @@ pub fn detect_access_urls(port: u16) -> Vec<String> {
 #[derive(Debug, Serialize)]
 pub struct SessionInfo {
     pub is_admin_pc: bool,
+    pub is_first_ip_access: bool,
+    pub client_ip: String,
     pub share_urls: Vec<String>,
 }
 
@@ -185,11 +187,14 @@ pub async fn get_session_info(
     State(state): State<Arc<AppState>>,
     Query(q): Query<SessionQuery>,
 ) -> impl IntoResponse {
+    let client_ip = format_client_ip(&addr);
+    let is_first_ip_access = !state.db.has_ip_accessed_before(&client_ip).unwrap_or(false);
+
     if q.log_access.unwrap_or(false) {
         let actor = q.actor.as_deref().unwrap_or("");
         if !actor.is_empty() {
             let _ = state.db.insert_audit_log(
-                &format_client_ip(&addr),
+                &client_ip,
                 actor,
                 "ACCESS",
                 None,
@@ -207,6 +212,8 @@ pub async fn get_session_info(
         StatusCode::OK,
         Json(ApiResponse::ok(SessionInfo {
             is_admin_pc: is_admin_request(&addr, &state),
+            is_first_ip_access,
+            client_ip,
             share_urls: detect_access_urls(state.port),
         })),
     )

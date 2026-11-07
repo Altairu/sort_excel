@@ -36,15 +36,19 @@ async function checkSessionInfo() {
 
     const res = await fetch(`/api/session?${params.toString()}`);
     const json = await res.json();
-    if (json.success && json.data && json.data.is_admin_pc) {
-      const adminLink = document.getElementById('btnAdminLink');
-      if (adminLink) {
-        adminLink.style.display = 'inline-flex';
+    if (json.success && json.data) {
+      if (json.data.is_admin_pc) {
+        const adminLink = document.getElementById('btnAdminLink');
+        if (adminLink) {
+          adminLink.style.display = 'inline-flex';
+        }
       }
+      return json.data;
     }
   } catch (err) {
     console.error('セッション確認失敗:', err);
   }
+  return null;
 }
 
 function getCurrentActorName() {
@@ -1068,11 +1072,15 @@ document.getElementById('newActorNameInput').addEventListener('keydown', (e) => 
 
 window.addEventListener('DOMContentLoaded', async () => {
   await loadConfig();
-  await checkSessionInfo();
+  const sessionInfo = await checkSessionInfo();
   await Promise.all([loadStats(), loadRecords(), loadSortedViews()]);
 
-  // 操作者が未設定の場合は最初に選択・追加を促すモーダルを表示
-  if (!getCurrentActorName()) {
+  const isFirstIp = !!(sessionInfo && sessionInfo.is_first_ip_access);
+  const hasNoActor = !getCurrentActorName();
+
+  // 初めてアクセスしたIP、または操作者が未設定の場合は、使い方ガイドと操作者選択モーダルを最初に開く
+  if (isFirstIp || hasNoActor) {
+    document.getElementById('helpModal').classList.add('active');
     openActorSetupModal();
   }
 });

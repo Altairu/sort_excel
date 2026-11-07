@@ -586,6 +586,17 @@ impl Db {
         Ok(())
     }
 
+    /// 指定した接続元IPからのアクセス・操作履歴が既に存在するか判定
+    pub fn has_ip_accessed_before(&self, client_ip: &str) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        let count: i64 = conn.query_row(
+            "SELECT count(*) FROM audit_logs WHERE client_ip = ?1",
+            params![client_ip],
+            |r| r.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
     /// 監査ログ一覧を取得（最新順、最大limit件）
     pub fn list_audit_logs(
         &self,
