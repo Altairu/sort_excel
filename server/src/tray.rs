@@ -42,7 +42,7 @@ pub mod win {
             WM_TRAY_CALLBACK => {
                 let event = lparam as u32;
                 if event == WM_LBUTTONUP || event == WM_LBUTTONDBLCLK {
-                    let _ = open::that("http://localhost:8080");
+                    let _ = open::that("http://localhost:3000");
                 } else if event == WM_RBUTTONUP {
                     let mut pt = POINT { x: 0, y: 0 };
                     unsafe {
@@ -81,10 +81,10 @@ pub mod win {
             WM_COMMAND => {
                 match wparam {
                     MENU_OPEN_BROWSER => {
-                        let _ = open::that("http://localhost:8080");
+                        let _ = open::that("http://localhost:3000");
                     }
                     MENU_OPEN_ADMIN => {
-                        let _ = open::that("http://localhost:8080/admin");
+                        let _ = open::that("http://localhost:3000/admin");
                     }
                     MENU_OPEN_FOLDER => {
                         let _ = open::that("exports");

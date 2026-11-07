@@ -15,7 +15,7 @@ pub async fn admin_page_handler(ConnectInfo(addr): ConnectInfo<SocketAddr>) -> R
         return (
             StatusCode::FORBIDDEN,
             [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-            "403 Forbidden: 管理者画面はサーバーを実行しているPC（http://localhost:8080/admin）からのみアクセスできます。",
+            "403 Forbidden: 管理者画面はサーバーを実行しているPC（http://localhost:3000/admin）からのみアクセスできます。",
         )
             .into_response();
     }

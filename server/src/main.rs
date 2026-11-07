@@ -89,7 +89,7 @@ async fn main() -> Result<()> {
         export_lock: Arc::new(Mutex::new(())),
     });
 
-    let port = 8080;
+    let port = 3000;
 
     // Windowsタスクトレイ（インジケーター）常駐スレッドを起動
     #[cfg(windows)]
