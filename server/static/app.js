@@ -70,7 +70,7 @@ function initSelectOptions() {
 
   // ステータスフィルター
   const statusFilter = document.getElementById('statusFilter');
-  const currentStatusVal = statusFilter.value || '進行中';
+  const currentStatusVal = statusFilter.value;
   statusFilter.innerHTML = '<option value="">すべて</option>';
   currentConfig.status_options.forEach(st => {
     const opt = document.createElement('option');
