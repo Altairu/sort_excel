@@ -34,6 +34,55 @@ async function loadAdminStats() {
   }
 }
 
+// 社員共有用アクセスURLの読み込みとコピー機能
+async function loadShareUrls() {
+  const container = document.getElementById('shareUrlContainer');
+  if (!container) return;
+
+  try {
+    const res = await fetch('/api/session');
+    const json = await res.json();
+    if (json.success && json.data && Array.isArray(json.data.share_urls)) {
+      container.innerHTML = '';
+      json.data.share_urls.forEach((url, idx) => {
+        const label = idx === 0 ? 'IPアドレス版 (推奨)' : 'PC名版';
+        const box = document.createElement('div');
+        box.className = 'share-url-box';
+        box.innerHTML = `
+          <span style="font-size:11px; color:#64748b; font-weight:600;">${escapeHtml(label)}:</span>
+          <input type="text" readonly value="${escapeHtml(url)}" id="shareUrlInput_${idx}">
+          <button type="button" class="btn btn-sm btn-primary copy-url-btn" data-url="${escapeHtml(url)}">URLをコピー</button>
+        `;
+        container.appendChild(box);
+      });
+
+      container.querySelectorAll('.share-url-box input').forEach(inp => {
+        inp.addEventListener('click', () => inp.select());
+      });
+
+      container.querySelectorAll('.copy-url-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const url = btn.dataset.url;
+          try {
+            await navigator.clipboard.writeText(url);
+            showToast(`コピーしました: ${url}`, 'success');
+          } catch (e) {
+            // フォールバック
+            const inp = btn.parentElement.querySelector('input');
+            if (inp) {
+              inp.select();
+              document.execCommand('copy');
+              showToast(`コピーしました: ${url}`, 'success');
+            }
+          }
+        });
+      });
+    }
+  } catch (err) {
+    console.error('共有URL取得失敗:', err);
+  }
+}
+
 // 設定の読み込みと画面への反映
 async function loadAdminConfig() {
   try {
@@ -442,8 +491,11 @@ document.querySelectorAll('.admin-nav-btn').forEach(btn => {
 });
 
 window.addEventListener('DOMContentLoaded', async () => {
-  await loadAdminStats();
-  await loadAdminConfig();
-  await loadBackupList();
-  await loadTrashList();
+  await Promise.all([
+    loadShareUrls(),
+    loadAdminStats(),
+    loadAdminConfig(),
+    loadBackupList(),
+    loadTrashList(),
+  ]);
 });

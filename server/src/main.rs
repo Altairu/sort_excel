@@ -82,14 +82,15 @@ async fn main() -> Result<()> {
         }
     }
 
+    let port = 3000;
+
     let state = Arc::new(AppState {
         db: db.clone(),
         db_path: db_path.clone(),
         backup_dir: backup_dir.clone(),
         export_lock: Arc::new(Mutex::new(())),
+        port,
     });
-
-    let port = 3000;
 
     // Windowsタスクトレイ（インジケーター）常駐スレッドを起動
     #[cfg(windows)]
@@ -148,11 +149,18 @@ async fn main() -> Result<()> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = tokio::net::TcpListener::bind(addr).await?;
 
+    let share_urls = api::detect_access_urls(port);
+
     println!("============================================================");
     println!(" 受託確認票 入力 / 自動ソートサーバーが正常に起動しました");
-    println!(" 使用者画面 (ローカル): http://localhost:{}", port);
     println!(" 管理者画面 (このPC専用): http://localhost:{}/admin", port);
-    println!(" 社内LANアクセス (使用者用): http://[PC名またはIP]:{}", port);
+    for (idx, u) in share_urls.iter().enumerate() {
+        if idx == 0 {
+            println!(" 社員共有用URL (IP):      {}", u);
+        } else {
+            println!(" 社員共有用URL (PC名):    {}", u);
+        }
+    }
     println!(" 共有フォルダ出力: ./exports/受託確認票.xlsx");
     println!(" バックアップ保存: ./backups/");
     println!("============================================================");

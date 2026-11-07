@@ -19,6 +19,7 @@ pub struct AppState {
     pub db_path: PathBuf,
     pub backup_dir: PathBuf,
     pub export_lock: Arc<Mutex<()>>,
+    pub port: u16,
 }
 
 #[derive(Debug, Deserialize)]
@@ -57,19 +58,56 @@ pub fn is_local_request(addr: &SocketAddr) -> bool {
     addr.ip().is_loopback()
 }
 
-/// 接続元情報を取得（使用者画面で管理者リンクを表示するかどうかの判定用）
+/// サーバーPCの社内LAN向けIPアドレスとホスト名を検出してアクセスURL一覧を生成
+pub fn detect_access_urls(port: u16) -> Vec<String> {
+    let mut urls = Vec::new();
+
+    // UDPソケットのルーティング先からメインのLAN IPv4アドレスを取得（外部への実通信は発生しない）
+    if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
+        if socket.connect("8.8.8.8:80").is_ok() {
+            if let Ok(local_addr) = socket.local_addr() {
+                let ip = local_addr.ip();
+                if !ip.is_loopback() && !ip.is_unspecified() {
+                    urls.push(format!("http://{}:{}/", ip, port));
+                }
+            }
+        }
+    }
+
+    // Windows環境変数 COMPUTERNAME からホスト名URLも生成
+    if let Ok(comp_name) = std::env::var("COMPUTERNAME") {
+        let name = comp_name.trim();
+        if !name.is_empty() {
+            let host_url = format!("http://{}:{}/", name, port);
+            if !urls.contains(&host_url) {
+                urls.push(host_url);
+            }
+        }
+    }
+
+    if urls.is_empty() {
+        urls.push(format!("http://localhost:{}/", port));
+    }
+
+    urls
+}
+
+/// 接続元情報を取得（使用者画面で管理者リンクを表示するかどうかの判定 + 社員共有URLの取得用）
 #[derive(Debug, Serialize)]
 pub struct SessionInfo {
     pub is_admin_pc: bool,
+    pub share_urls: Vec<String>,
 }
 
 pub async fn get_session_info(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
     (
         StatusCode::OK,
         Json(ApiResponse::ok(SessionInfo {
             is_admin_pc: is_local_request(&addr),
+            share_urls: detect_access_urls(state.port),
         })),
     )
 }
