@@ -12,6 +12,7 @@ use std::time::Duration;
 use std::os::windows::process::CommandExt;
 
 pub const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+#[allow(dead_code)]
 pub const GITHUB_REPO: &str = "Altairu/sort_excel";
 pub const ASSET_NAME: &str = "sort_excel_server.exe";
 pub const CHECKSUM_ASSET_NAME: &str = "sort_excel_server.exe.sha256";
