@@ -516,33 +516,13 @@ async function loadAuditLogs() {
           <td style="font-family: monospace;">${escapeHtml(log.client_ip)}</td>
           <td><b>${escapeHtml(log.summary)}</b></td>
           <td style="white-space: normal; max-width: 480px; color: #334155;">${escapeHtml(log.details)}</td>
-          <td>
-            <button class="btn btn-sm btn-outline delete-log-btn" data-id="${escapeHtml(String(log.id))}" style="color:var(--danger);">削除</button>
-          </td>
         `;
         tbody.appendChild(tr);
-      });
-
-      tbody.querySelectorAll('.delete-log-btn').forEach(btn => {
-        btn.addEventListener('click', async () => {
-          const id = btn.dataset.id;
-          try {
-            const r = await fetch(`/api/audit-logs/${id}`, { method: 'DELETE' });
-            const j = await r.json();
-            if (j.success) {
-              loadAuditLogs();
-            } else {
-              showToast(j.error || '削除に失敗しました', 'error');
-            }
-          } catch (e) {
-            showToast('通信エラーが発生しました', 'error');
-          }
-        });
       });
     } else {
       const tr = document.createElement('tr');
       const td = document.createElement('td');
-      td.colSpan = 7;
+      td.colSpan = 6;
       td.style.textAlign = 'center';
       td.style.color = 'var(--text-muted)';
       td.textContent = '該当する履歴ログはありません';
@@ -561,27 +541,6 @@ document.getElementById('logSearchInput').addEventListener('input', () => {
 });
 document.getElementById('logActionFilter').addEventListener('change', loadAuditLogs);
 document.getElementById('btnRefreshLogs').addEventListener('click', loadAuditLogs);
-document.getElementById('btnClearTestLogs').addEventListener('click', async () => {
-  if (!confirm('「テスト用（動作確認）」によるアクセス・操作ログをすべて消去しますか？')) {
-    return;
-  }
-  try {
-    const res = await fetch('/api/audit-logs/clear', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ only_test: true }),
-    });
-    const json = await res.json();
-    if (json.success) {
-      showToast(json.data || 'テスト用ログを消去しました', 'success');
-      loadAuditLogs();
-    } else {
-      showToast(json.error || '消去に失敗しました', 'error');
-    }
-  } catch (e) {
-    showToast('通信エラーが発生しました', 'error');
-  }
-});
 
 // ナビゲーション切り替え
 document.querySelectorAll('.admin-nav-btn').forEach(btn => {

@@ -907,59 +907,6 @@ pub async fn list_audit_logs(
     }
 }
 
-/// 監査ログの単一削除（管理者PCのみ許可）
-pub async fn delete_audit_log_entry(
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<i64>,
-) -> impl IntoResponse {
-    if !is_local_request(&addr) {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(ApiResponse::err("管理者画面からのみ実行できます")),
-        );
-    }
-
-    match state.db.delete_audit_log(id) {
-        Ok(()) => (StatusCode::OK, Json(ApiResponse::ok("ログを削除しました"))),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiResponse::err(e.to_string())),
-        ),
-    }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ClearLogsRequest {
-    pub only_test: Option<bool>,
-}
-
-/// 監査ログの一括消去（テストログのみ、または全件 / 管理者PCのみ許可）
-pub async fn clear_audit_logs_handler(
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<ClearLogsRequest>,
-) -> impl IntoResponse {
-    if !is_local_request(&addr) {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(ApiResponse::err("管理者画面からのみ実行できます")),
-        );
-    }
-
-    let only_test = payload.only_test.unwrap_or(true);
-    match state.db.clear_audit_logs(only_test) {
-        Ok(cnt) => (
-            StatusCode::OK,
-            Json(ApiResponse::ok(format!("{} 件のログを消去しました", cnt))),
-        ),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiResponse::err(e.to_string())),
-        ),
-    }
-}
-
 /// ソート済みデータ一式取得（日付別シート / 融資実行日順 / 金消日順 / 統合データ）
 pub async fn get_sorted_views(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     match state.db.get_config() {
