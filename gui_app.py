@@ -19,7 +19,6 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 from config_manager import load_config, save_config, reset_config, get_config_path
-from sort_core import process_excel
 import updater
 from version import __version__
 
@@ -267,6 +266,7 @@ class SortExcelApp(tk.Tk):
         self._build_ui()
         self._setup_drag_and_drop()
         self._start_startup_update_check()
+        self._start_background_preload()
 
     def _px(self, value: int) -> int:
         """DPI倍率に応じたピクセル値を返します"""
@@ -989,6 +989,7 @@ class SortExcelApp(tk.Tk):
     def _run_worker(self, input_path: str, output_path: str) -> None:
         """ワーカースレッドでExcelの整形とソートを実行します"""
         try:
+            from sort_core import process_excel
             out_result = process_excel(
                 input_path=input_path,
                 output_path=output_path,
@@ -2292,6 +2293,17 @@ class SortExcelApp(tk.Tk):
             self.after(0, self._show_update_dialog, info)
 
         self.after(1500, lambda: threading.Thread(target=worker, daemon=True).start())
+
+    def _start_background_preload(self) -> None:
+        """起動後にバックグラウンドでソート処理ライブラリをプリロードして初回の実行待ちを解消します"""
+        def worker() -> None:
+            try:
+                import sort_core  # noqa: F401
+            except Exception:
+                pass
+
+        # UI描画が完全に落ち着いた直後に実行
+        self.after(300, lambda: threading.Thread(target=worker, daemon=True).start())
 
     def _check_update_manual(self) -> None:
         """手動で最新バージョンの有無を確認します"""

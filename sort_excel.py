@@ -12,9 +12,8 @@ import ctypes
 from pathlib import Path
 from typing import Optional
 
-# 設定マネージャーとコアロジック
+# 設定マネージャー（コアロジック sort_core は起動高速化のため遅延インポート）
 from config_manager import load_config
-from sort_core import process_excel
 
 
 def _show_msg(title: str, text: str, style: int = 0):
@@ -30,6 +29,7 @@ def sort_excel(input_path: str, output_path: Optional[str] = None):
     既存の外部呼び出し互換関数。
     Excelファイルを読み込み、並べ替えと書式設定を行って保存します。
     """
+    from sort_core import process_excel
     if output_path is None:
         output_path = 'sorted_combined.xlsx'
     return process_excel(input_path=input_path, output_path=output_path)

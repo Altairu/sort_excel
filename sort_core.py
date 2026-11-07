@@ -4,13 +4,15 @@
 Excelファイルの読み込み、整形、並べ替え、書式設定を行います。
 """
 
+import datetime
 import sys
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 import pandas as pd
 import numpy as np
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Border, Side, Alignment, Font
+from openpyxl.utils import get_column_letter
 
 from config_manager import load_config
 
@@ -166,8 +168,17 @@ def _sort_for_date_sheet(df_date: pd.DataFrame, config: Dict[str, Any]) -> pd.Da
 
     return df_sorted
 
+def _sanitize_cell_value(val: Any) -> Any:
+    """Excelセル用の値整形を行います（欠損値をNoneに、時刻型を文字列に変換）"""
+    if pd.isna(val):
+        return None
+    if isinstance(val, datetime.time):
+        return val.strftime('%H:%M:%S')
+    return val
+
+
 def _apply_excel_styles(out_path: Path, config: Dict[str, Any], log_cb: Optional[Callable[[str], None]] = None):
-    """openpyxlを用いて罫線、列幅、行高、配置スタイルを適用します"""
+    """openpyxlを用いて既存Excelファイルへ罫線、列幅、行高、配置スタイルを適用します（後方互換用）"""
     if log_cb:
         log_cb("Excelの書式設定を適用中...")
 
@@ -187,7 +198,6 @@ def _apply_excel_styles(out_path: Path, config: Dict[str, Any], log_cb: Optional
         max_row = ws.max_row
         max_col = ws.max_column
 
-        # 罫線・高さ・配置の設定
         for r in range(1, max_row + 1):
             ws.row_dimensions[r].height = row_height
             for c in range(1, max_col + 1):
@@ -197,18 +207,19 @@ def _apply_excel_styles(out_path: Path, config: Dict[str, Any], log_cb: Optional
                     cell.font = header_font
                 cell.alignment = align
 
-        # 列幅の設定
         for c in range(1, max_col + 1):
-            col_letter = ws.cell(row=1, column=c).column_letter
+            col_letter = get_column_letter(c)
             header_val = ws.cell(row=1, column=c).value
             width = width_rules.get(header_val, default_width)
             ws.column_dimensions[col_letter].width = width
 
     wb.save(out_path)
 
+
 def process_excel(input_path: str, output_path: Optional[str] = None, config: Optional[Dict[str, Any]] = None, log_cb: Optional[Callable[[str], None]] = None) -> str:
     """
-    Excelファイルのソートと書式設定を実行します。
+    Excelファイルのソートと書式設定を高速に実行します。
+    ディスクI/Oとスタイル適用をシングルパスで行うことで処理時間を短縮します。
     """
     src = Path(input_path)
     if not src.exists():
@@ -218,7 +229,6 @@ def process_excel(input_path: str, output_path: Optional[str] = None, config: Op
         config = load_config()
 
     if output_path is None:
-        # デフォルト出力パス：同じディレクトリに [元ファイル名]_sorted.xlsx
         output_path = str(src.parent / f"{src.stem}_sorted.xlsx")
     
     out_file = Path(output_path)
@@ -232,33 +242,124 @@ def process_excel(input_path: str, output_path: Optional[str] = None, config: Op
     loan, cancel, combined = _make_tables(df)
 
     sheet_opts = config.get("sheet_options", {})
-    
-    # 3. Excel出力
+    formatting = config.get("formatting", {})
+    row_height = formatting.get("row_height", 25)
+    width_rules = formatting.get("col_widths", {})
+    default_width = formatting.get("default_col_width", 11.43)
+
+    dotted = Side(style='dotted')
+    border_all = Border(left=dotted, right=dotted, top=dotted, bottom=dotted)
+    align = Alignment(horizontal='center', vertical='center', shrink_to_fit=True, wrap_text=False)
+    header_font = Font(bold=True)
+
+    # 3. 高速シングルパス出力（書き込みと書式設定を同時に実行）
     if log_cb:
-        log_cb("シートを出力中...")
-    with pd.ExcelWriter(out_file, engine='openpyxl') as writer:
-        if sheet_opts.get("loan_sheet", True):
-            loan.to_excel(writer, sheet_name='sorted_by_融資実行日', index=False)
-        if sheet_opts.get("cancel_sheet", True):
-            cancel.to_excel(writer, sheet_name='sorted_by_金消日・面談日', index=False)
-        if sheet_opts.get("combined_sheet", True):
-            combined.to_excel(writer, sheet_name='統合データ', index=False)
+        log_cb("シートの作成と書式設定中...")
 
-        # 日付ごとのシート
-        if sheet_opts.get("date_sheets", True) and '日付' in combined.columns:
-            unique_dates = combined['日付'].dropna().unique()
-            if log_cb:
-                log_cb(f"日付別シート作成中 (計 {len(unique_dates)} 日分)...")
-            for date in unique_dates:
-                df_date = combined[combined['日付'] == date].copy()
-                df_date = _sort_for_date_sheet(df_date, config)
-                sheet_name = str(date).replace('/', '-')
-                # Excelシート名制限（31文字以下）
-                sheet_name = sheet_name[:31]
-                df_date.to_excel(writer, sheet_name=sheet_name, index=False)
+    wb = Workbook()
 
-    # 4. 書式適用
-    _apply_excel_styles(out_file, config, log_cb=log_cb)
+    # スタイル定義をキャッシュしてセル単位の重複登録オーバーヘッドを削減
+    dummy_ws = wb.active
+    c_data = dummy_ws.cell(1, 1)
+    c_data.border = border_all
+    c_data.alignment = align
+    data_style_id = c_data._style
+
+    c_hdr = dummy_ws.cell(1, 2)
+    c_hdr.border = border_all
+    c_hdr.alignment = align
+    c_hdr.font = header_font
+    header_style_id = c_hdr._style
+
+    wb.remove(dummy_ws)
+
+    def write_styled_sheet(title: str, target_df: pd.DataFrame) -> None:
+        """指定データフレームをシートへ書き込み、スタイルを適用します"""
+        ws = wb.create_sheet(title=title)
+        cols = list(target_df.columns)
+
+        # 列幅の設定
+        for col_idx, col_name in enumerate(cols, 1):
+            col_letter = get_column_letter(col_idx)
+            ws.column_dimensions[col_letter].width = width_rules.get(col_name, default_width)
+
+        # ヘッダー行の書き込みと書式設定
+        ws.append(cols)
+        ws.row_dimensions[1].height = row_height
+        for cell in ws[1]:
+            cell._style = header_style_id
+
+        # データ行の書き込みと書式設定
+        if not target_df.empty:
+            for r_idx, row_vals in enumerate(target_df.itertuples(index=False, name=None), 2):
+                ws.row_dimensions[r_idx].height = row_height
+                ws.append([_sanitize_cell_value(v) for v in row_vals])
+                for cell in ws[r_idx]:
+                    cell._style = data_style_id
+
+    if sheet_opts.get("loan_sheet", True):
+        write_styled_sheet('sorted_by_融資実行日', loan)
+    if sheet_opts.get("cancel_sheet", True):
+        write_styled_sheet('sorted_by_金消日・面談日', cancel)
+    if sheet_opts.get("combined_sheet", True):
+        write_styled_sheet('統合データ', combined)
+
+    # 日付ごとのシート（ソートキーを一括前計算して高速グループ化）
+    if sheet_opts.get("date_sheets", True) and '日付' in combined.columns:
+        staff_order = config.get("staff_order", [])
+        order_dict = {name: i for i, name in enumerate(staff_order)}
+        sort_keys_config = config.get("sort_keys", [
+            {"key": "識別", "ascending": False},
+            {"key": "担当", "ascending": True},
+            {"key": "時間", "ascending": True}
+        ])
+
+        comb_work = combined.copy()
+        temp_cols = []
+        sort_by_cols = []
+        ascending_list = []
+
+        for i, item in enumerate(sort_keys_config):
+            col_name = item.get("key", "")
+            asc = item.get("ascending", True)
+            temp_col = f"_sort_key_{i}"
+
+            if col_name == "担当":
+                s_val = comb_work['担当'].astype(str).map(order_dict).fillna(99999).astype(int)
+            elif col_name == "時間":
+                s_val = _parse_time_like(comb_work.get('時間', pd.Series()))
+            elif col_name == "識別":
+                s_val = comb_work.get('識別', pd.Series()).astype(str)
+            else:
+                if col_name in comb_work.columns:
+                    s_val = comb_work[col_name].astype(str)
+                else:
+                    s_val = pd.Series([""] * len(comb_work), index=comb_work.index)
+
+            comb_work[temp_col] = s_val
+            temp_cols.append(temp_col)
+            sort_by_cols.append(temp_col)
+            ascending_list.append(asc)
+
+        valid_mask = comb_work['日付'].notna()
+        comb_valid = comb_work[valid_mask]
+        unique_date_count = comb_valid['日付'].nunique()
+
+        if log_cb:
+            log_cb(f"日付別シート作成中 (計 {unique_date_count} 日分)...")
+
+        for date, group in comb_valid.groupby('日付', sort=False):
+            if sort_by_cols:
+                sorted_group = group.sort_values(by=sort_by_cols, ascending=ascending_list).drop(columns=temp_cols)
+            else:
+                sorted_group = group.drop(columns=temp_cols)
+            sheet_name = str(date).replace('/', '-')[:31]
+            write_styled_sheet(sheet_name, sorted_group)
+
+    # 4. ディスクへ保存
+    if log_cb:
+        log_cb("ファイルを保存中...")
+    wb.save(out_file)
 
     if log_cb:
         log_cb(f"処理が完了しました: {out_file.name}")
