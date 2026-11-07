@@ -69,7 +69,7 @@ async function setCurrentActorName(name, logAccess = false) {
 
   if (logAccess) {
     try {
-      const params = new URLSearchParams({ log_access: 'true', actor: trimmed });
+      const params = new URLSearchParams({ log_access: 'true', confirm_actor: 'true', actor: trimmed });
       await fetch(`/api/session?${params.toString()}`);
     } catch (e) {
       console.error(e);
@@ -1076,6 +1076,11 @@ window.addEventListener('DOMContentLoaded', async () => {
   await Promise.all([loadStats(), loadRecords(), loadSortedViews()]);
 
   const isFirstIp = !!(sessionInfo && sessionInfo.is_first_ip_access);
+  if (isFirstIp) {
+    localStorage.removeItem('sort_excel_actor');
+    const actorSelect = document.getElementById('currentActorSelect');
+    if (actorSelect) actorSelect.value = '';
+  }
   const hasNoActor = !getCurrentActorName();
 
   // 初めてアクセスしたIP、または操作者が未設定の場合は、使い方ガイドと操作者選択モーダルを最初に開く

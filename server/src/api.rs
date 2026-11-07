@@ -180,6 +180,7 @@ pub struct SessionInfo {
 pub struct SessionQuery {
     pub actor: Option<String>,
     pub log_access: Option<bool>,
+    pub confirm_actor: Option<bool>,
 }
 
 pub async fn get_session_info(
@@ -189,8 +190,10 @@ pub async fn get_session_info(
 ) -> impl IntoResponse {
     let client_ip = format_client_ip(&addr);
     let is_first_ip_access = !state.db.has_ip_accessed_before(&client_ip).unwrap_or(false);
+    let confirm_actor = q.confirm_actor.unwrap_or(false);
 
-    if q.log_access.unwrap_or(false) {
+    // 初回IPアクセスの場合は、操作者選択モーダルで明示的に選択（confirm_actor=true）されるまでログを記録しない
+    if q.log_access.unwrap_or(false) && (!is_first_ip_access || confirm_actor) {
         let actor = q.actor.as_deref().unwrap_or("");
         if !actor.is_empty() {
             let _ = state.db.insert_audit_log(
