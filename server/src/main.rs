@@ -120,6 +120,7 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .route("/admin", get(static_files::admin_page_handler))
         .route("/api/session", get(api::get_session_info))
+        .route("/api/actors", post(api::add_actor))
         .route(
             "/api/records",
             get(api::list_records).post(api::create_record),

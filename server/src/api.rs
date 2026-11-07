@@ -173,18 +173,20 @@ pub async fn get_session_info(
 ) -> impl IntoResponse {
     if q.log_access.unwrap_or(false) {
         let actor = q.actor.as_deref().unwrap_or("");
-        let _ = state.db.insert_audit_log(
-            &format_client_ip(&addr),
-            actor,
-            "ACCESS",
-            None,
-            "画面へアクセス",
-            if is_local_request(&addr) {
-                "サーバーPCから画面を開きました"
-            } else {
-                "社内LANのPCから画面を開きました"
-            },
-        );
+        if !actor.is_empty() {
+            let _ = state.db.insert_audit_log(
+                &format_client_ip(&addr),
+                actor,
+                "ACCESS",
+                None,
+                "画面へアクセス",
+                if is_local_request(&addr) {
+                    "サーバーPCから画面を開きました"
+                } else {
+                    "社内LANのPCから画面を開きました"
+                },
+            );
+        }
     }
 
     (
@@ -360,6 +362,53 @@ pub async fn delete_record(
             );
             trigger_auto_export(&state);
             (StatusCode::OK, Json(ApiResponse::ok("削除完了")))
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::err(e.to_string())),
+        ),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AddActorRequest {
+    pub name: String,
+}
+
+/// 新しい操作者（担当者）名をリストへ追加（全クライアントから利用可）
+pub async fn add_actor(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<AddActorRequest>,
+) -> impl IntoResponse {
+    let name = payload.name.trim().to_string();
+    if name.is_empty() || name.len() > 40 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiResponse::err("名前を正しく入力してください（40文字以内）")),
+        );
+    }
+
+    match state.db.get_config() {
+        Ok(mut cfg) => {
+            if !cfg.staff_order.contains(&name) {
+                cfg.staff_order.push(name.clone());
+                if let Err(e) = state.db.update_config(&cfg) {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ApiResponse::err(e.to_string())),
+                    );
+                }
+                let _ = state.db.insert_audit_log(
+                    &format_client_ip(&addr),
+                    &name,
+                    "CONFIG",
+                    None,
+                    &format!("新しい操作者（担当者）を追加: {}", name),
+                    "操作者選択画面から担当者リストへ新規追加されました",
+                );
+            }
+            (StatusCode::OK, Json(ApiResponse::ok(cfg)))
         }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,

@@ -8,6 +8,7 @@ let activeViewTab = 'view-master';
 let selectedDateKey = null;
 
 const CUSTOM_OPTION_VALUE = '__CUSTOM__';
+const ADD_ACTOR_OPTION_VALUE = '__ADD_ACTOR__';
 
 const SELECT_WITH_CUSTOM_FIELDS = [
   'field_status',
@@ -46,8 +47,80 @@ async function checkSessionInfo() {
 }
 
 function getCurrentActorName() {
-  const sel = document.getElementById('currentActorSelect');
-  return sel ? sel.value : (localStorage.getItem('sort_excel_actor') || '');
+  return localStorage.getItem('sort_excel_actor') || '';
+}
+
+async function setCurrentActorName(name, logAccess = false) {
+  const trimmed = (name || '').trim();
+  if (!trimmed) return;
+  localStorage.setItem('sort_excel_actor', trimmed);
+
+  const actorSelect = document.getElementById('currentActorSelect');
+  if (actorSelect) {
+    actorSelect.value = trimmed;
+  }
+
+  document.getElementById('actorSetupModal').classList.remove('active');
+
+  if (logAccess) {
+    try {
+      const params = new URLSearchParams({ log_access: 'true', actor: trimmed });
+      await fetch(`/api/session?${params.toString()}`);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+}
+
+function openActorSetupModal() {
+  const grid = document.getElementById('actorButtonsGrid');
+  if (grid && currentConfig) {
+    grid.innerHTML = '';
+    currentConfig.staff_order.forEach(s => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-outline';
+      btn.style.padding = '8px 16px';
+      btn.style.fontSize = '14px';
+      btn.textContent = s;
+      btn.addEventListener('click', async () => {
+        await setCurrentActorName(s, true);
+        showToast(`操作者を ${s} に設定しました`, 'success');
+      });
+      grid.appendChild(btn);
+    });
+  }
+  document.getElementById('newActorNameInput').value = '';
+  document.getElementById('actorSetupModal').classList.add('active');
+}
+
+async function addAndSelectNewActor() {
+  const input = document.getElementById('newActorNameInput');
+  const name = (input.value || '').trim();
+  if (!name) {
+    showToast('名前を入力してください', 'error');
+    input.focus();
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/actors', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    const json = await res.json();
+    if (json.success && json.data) {
+      currentConfig = json.data;
+      initSelectOptions();
+      await setCurrentActorName(name, true);
+      showToast(`${name} をリストに追加し、操作者に設定しました`, 'success');
+    } else {
+      showToast(json.error || '追加に失敗しました', 'error');
+    }
+  } catch (err) {
+    showToast('通信エラーが発生しました', 'error');
+  }
 }
 
 async function loadConfig() {
@@ -66,21 +139,38 @@ async function loadConfig() {
 function initSelectOptions() {
   if (!currentConfig) return;
 
-  // 操作者セレクター（localStorageに保存）
+  // 操作者セレクター（localStorageに保存 + リストになければ追加可能）
   const actorSelect = document.getElementById('currentActorSelect');
   if (actorSelect) {
     const savedActor = localStorage.getItem('sort_excel_actor') || '';
-    actorSelect.innerHTML = '<option value="">(未設定)</option>';
+    actorSelect.innerHTML = '<option value="">(未設定 - クリックして選択)</option>';
     currentConfig.staff_order.forEach(s => {
       const opt = document.createElement('option');
       opt.value = s;
       opt.textContent = s;
       actorSelect.appendChild(opt);
     });
+    if (savedActor && !currentConfig.staff_order.includes(savedActor)) {
+      const opt = document.createElement('option');
+      opt.value = savedActor;
+      opt.textContent = savedActor;
+      actorSelect.appendChild(opt);
+    }
+    const addOpt = document.createElement('option');
+    addOpt.value = ADD_ACTOR_OPTION_VALUE;
+    addOpt.textContent = '+ リストにない名前を追加...';
+    actorSelect.appendChild(addOpt);
+
     actorSelect.value = savedActor;
     if (!actorSelect.dataset.listenerAttached) {
       actorSelect.addEventListener('change', () => {
-        localStorage.setItem('sort_excel_actor', actorSelect.value);
+        if (actorSelect.value === ADD_ACTOR_OPTION_VALUE || actorSelect.value === '') {
+          actorSelect.value = localStorage.getItem('sort_excel_actor') || '';
+          openActorSetupModal();
+        } else {
+          setCurrentActorName(actorSelect.value, false);
+          showToast(`操作者を ${actorSelect.value} に切り替えました`, 'info');
+        }
       });
       actorSelect.dataset.listenerAttached = 'true';
     }
@@ -826,8 +916,21 @@ document.getElementById('btnCancelEdit').addEventListener('click', closeEditPane
 document.getElementById('panelBackdrop').addEventListener('click', closeEditPanel);
 
 // 初期化実行
+document.getElementById('btnAddAndSelectActor').addEventListener('click', addAndSelectNewActor);
+document.getElementById('newActorNameInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    addAndSelectNewActor();
+  }
+});
+
 window.addEventListener('DOMContentLoaded', async () => {
-  await checkSessionInfo();
   await loadConfig();
+  await checkSessionInfo();
   await Promise.all([loadStats(), loadRecords(), loadSortedViews()]);
+
+  // 操作者が未設定の場合は最初に選択・追加を促すモーダルを表示
+  if (!getCurrentActorName()) {
+    openActorSetupModal();
+  }
 });
