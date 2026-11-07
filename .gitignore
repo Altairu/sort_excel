@@ -13,3 +13,9 @@ venv/
 # 自動更新で一時的に作られるファイル
 *.exe.new
 *.exe.old
+
+# サーバーバイナリと生成物
+sort_excel_server.exe
+data.db*
+/exports/
+/backups/
