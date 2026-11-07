@@ -309,6 +309,30 @@ document.getElementById('btnManualExport').addEventListener('click', async () =>
   }
 });
 
+// デスクトップにショートカット作成
+document.getElementById('btnAdminCreateShortcut').addEventListener('click', async () => {
+  try {
+    const res = await fetch('/api/shortcut', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_url: window.location.origin }),
+    });
+    const json = await res.json();
+    if (json.success && json.data) {
+      if (json.data.direct_created) {
+        showToast(json.data.message || 'デスクトップにショートカットを作成しました', 'success');
+      } else {
+        window.location.href = '/api/shortcut';
+        showToast('ショートカットファイルを保存しました', 'success');
+      }
+    } else {
+      showToast(json.error || 'ショートカット作成に失敗しました', 'error');
+    }
+  } catch (err) {
+    showToast('通信エラーが発生しました', 'error');
+  }
+});
+
 // Excel一括インポート
 document.getElementById('btnExecuteImport').addEventListener('click', async () => {
   const filePath = document.getElementById('importFilePath').value.trim();

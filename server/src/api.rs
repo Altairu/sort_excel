@@ -1275,6 +1275,133 @@ pub async fn update_bug_report_status(
     }
 }
 
+/// サーバーPCのデスクトップに直接ショートカットを作成（ローカルPCの場合は直接配置、社員PCの場合は.urlファイルをダウンロード提供）
+pub fn create_local_desktop_shortcuts(port: u16) -> anyhow::Result<String> {
+    let user_profile = std::env::var("USERPROFILE")?;
+    let desktop_dir = PathBuf::from(user_profile).join("Desktop");
+    if !desktop_dir.exists() {
+        anyhow::bail!("デスクトップフォルダが見つかりません");
+    }
+
+    // 1. 使用者画面のURLショートカット
+    let user_url_path = desktop_dir.join("受託確認票 業務管理システム.url");
+    let user_url_content = format!(
+        "[InternetShortcut]\r\nURL=http://localhost:{}/\r\nIconIndex=0\r\n",
+        port
+    );
+    std::fs::write(&user_url_path, user_url_content)?;
+
+    // 2. 管理者画面のURLショートカット
+    let admin_url_path = desktop_dir.join("受託確認票 管理者コンソール.url");
+    let admin_url_content = format!(
+        "[InternetShortcut]\r\nURL=http://localhost:{}/admin\r\nIconIndex=0\r\n",
+        port
+    );
+    std::fs::write(&admin_url_path, admin_url_content)?;
+
+    // 3. サーバー実行ファイル (sort_excel_server.exe) の .lnk ショートカット作成
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let lnk_path = desktop_dir.join("受託確認票 サーバー起動.lnk");
+            let ps_script = format!(
+                "$s=(New-Object -COM WScript.Shell).CreateShortcut('{}');$s.TargetPath='{}';$s.WorkingDirectory='{}';$s.Description='受託確認票 業務管理サーバーを起動します';$s.Save()",
+                lnk_path.to_string_lossy().replace('\'', "''"),
+                exe_path.to_string_lossy().replace('\'', "''"),
+                exe_dir.to_string_lossy().replace('\'', "''")
+            );
+            let _ = std::process::Command::new("powershell")
+                .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &ps_script])
+                .status();
+        }
+    }
+
+    Ok(format!(
+        "デスクトップ（{:?}）にショートカットを作成しました",
+        desktop_dir
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ShortcutRequest {
+    pub target_url: Option<String>,
+}
+
+/// ショートカット作成API（サーバーPC自身なら直接デスクトップへ配置、社内LANの社員PCならそのまま配置可能なショートカット情報を返す）
+pub async fn create_shortcut_handler(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    State(state): State<Arc<AppState>>,
+    Json(_payload): Json<ShortcutRequest>,
+) -> impl IntoResponse {
+    if is_local_request(&addr) {
+        match create_local_desktop_shortcuts(state.port) {
+            Ok(msg) => (
+                StatusCode::OK,
+                Json(ApiResponse::ok( serde_json::json!({
+                    "direct_created": true,
+                    "message": msg
+                }))),
+            ),
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiResponse::err(format!("ショートカット作成失敗: {}", e))),
+            ),
+        }
+    } else {
+        // 社員PCからのリクエスト時は、社員PCのブラウザからダウンロードさせるモードを返す
+        let urls = detect_access_urls(state.port);
+        let primary_url = urls
+            .first()
+            .cloned()
+            .unwrap_or_else(|| format!("http://localhost:{}/", state.port));
+        (
+            StatusCode::OK,
+            Json(ApiResponse::ok(serde_json::json!({
+                "direct_created": false,
+                "shortcut_url": primary_url,
+                "message": "ショートカットファイルをダウンロードしました。デスクトップへ移動してご利用ください。"
+            }))),
+        )
+    }
+}
+
+/// 社員PC向けに .url ショートカットファイルを直接ダウンロード配信するエンドポイント
+pub async fn download_shortcut_file(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse {
+    // Hostヘッダーがあればそこから接続先URLを組み立て、なければ自動検出IPを使用
+    let host_Url = headers
+        .get(axum::http::header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .map(|h| format!("http://{}/", h))
+        .unwrap_or_else(|| {
+            detect_access_urls(state.port)
+                .first()
+                .cloned()
+                .unwrap_or_else(|| format!("http://localhost:{}/", state.port))
+        });
+
+    let content = format!(
+        "[InternetShortcut]\r\nURL={}\r\nIconIndex=0\r\n",
+        host_Url
+    );
+
+    (
+        StatusCode::OK,
+        [
+            (
+                axum::http::header::CONTENT_TYPE,
+                "application/internet-shortcut",
+            ),
+            (
+                axum::http::header::CONTENT_DISPOSITION,
+                "attachment; filename=\"受託確認票システム.url\"",
+            ),
+        ],
+        content,
+    )
+}
+
 /// 統計情報取得
 #[derive(Debug, Serialize)]
 pub struct StatsData {

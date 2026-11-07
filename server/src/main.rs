@@ -150,6 +150,10 @@ async fn main() -> Result<()> {
             get(api::list_bug_reports).post(api::create_bug_report),
         )
         .route("/api/reports/{id}", axum::routing::put(api::update_bug_report_status))
+        .route(
+            "/api/shortcut",
+            get(api::download_shortcut_file).post(api::create_shortcut_handler),
+        )
         .route("/api/sorted-views", get(api::get_sorted_views))
         .route("/api/stats", get(api::get_stats))
         .fallback(static_files::static_handler)

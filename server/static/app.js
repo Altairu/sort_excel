@@ -894,6 +894,31 @@ document.getElementById('btnExport').addEventListener('click', async () => {
   }
 });
 
+// デスクトップにショートカット作成（サーバーPC自身なら直接デスクトップへ生成、社員PCなら.urlファイルを即ダウンロード）
+document.getElementById('btnCreateShortcut').addEventListener('click', async () => {
+  try {
+    const res = await fetch('/api/shortcut', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_url: window.location.origin }),
+    });
+    const json = await res.json();
+    if (json.success && json.data) {
+      if (json.data.direct_created) {
+        showToast(json.data.message || 'デスクトップにショートカットを作成しました', 'success');
+      } else {
+        // 社員PCの場合は .url ショートカットファイルをダウンロード開始
+        window.location.href = '/api/shortcut';
+        showToast('ショートカットファイルを保存しました。デスクトップへ置いてお使いください', 'success');
+      }
+    } else {
+      showToast(json.error || 'ショートカット作成に失敗しました', 'error');
+    }
+  } catch (err) {
+    showToast('通信エラーが発生しました', 'error');
+  }
+});
+
 // 使い方ガイドモーダル
 document.getElementById('btnHelp').addEventListener('click', () => {
   document.getElementById('helpModal').classList.add('active');
