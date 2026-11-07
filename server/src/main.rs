@@ -143,9 +143,14 @@ async fn main() -> Result<()> {
         .route("/api/trash/{id}/restore", post(api::restore_trash_record))
         .route("/api/trash/{id}", delete(api::purge_trash_record))
         .route("/api/audit-logs", get(api::list_audit_logs))
+        .route("/api/ip-block", post(api::toggle_ip_block))
         .route("/api/sorted-views", get(api::get_sorted_views))
         .route("/api/stats", get(api::get_stats))
         .fallback(static_files::static_handler)
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            api::ip_block_middleware,
+        ))
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));

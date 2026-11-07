@@ -907,6 +907,124 @@ pub async fn list_audit_logs(
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct IpBlockRequest {
+    pub ip: String,
+    pub block: bool, // true: 遮断(出禁), false: 解除
+}
+
+/// 指定IPアドレスのアクセス遮断（出禁）/ 解除を切り替え（管理者PCのみ許可）
+pub async fn toggle_ip_block(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<IpBlockRequest>,
+) -> impl IntoResponse {
+    if !is_local_request(&addr) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ApiResponse::err(
+                "IPアクセス制限の変更はサーバーPC（管理者画面）からのみ実行できます",
+            )),
+        );
+    }
+
+    // "192.168.1.10 (サーバーPC)" のような表記から純粋なIP部分だけを抽出
+    let raw_ip = payload
+        .ip
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+
+    if raw_ip.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiResponse::err("IPアドレスを指定してください")),
+        );
+    }
+
+    if raw_ip == "127.0.0.1" || raw_ip == "::1" || raw_ip.eq_ignore_ascii_case("localhost") {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiResponse::err(
+                "サーバーPC自身（localhost / 127.0.0.1）は遮断できません",
+            )),
+        );
+    }
+
+    match state.db.get_config() {
+        Ok(mut cfg) => {
+            if payload.block {
+                if !cfg.blocked_ips.contains(&raw_ip) {
+                    cfg.blocked_ips.push(raw_ip.clone());
+                }
+            } else {
+                cfg.blocked_ips.retain(|x| x != &raw_ip);
+            }
+
+            if let Err(e) = state.db.update_config(&cfg) {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ApiResponse::err(e.to_string())),
+                );
+            }
+
+            let action_label = if payload.block {
+                "アクセス遮断（出禁）に登録"
+            } else {
+                "アクセス遮断（出禁）を解除"
+            };
+
+            let _ = state.db.insert_audit_log(
+                &format_client_ip(&addr),
+                "管理者",
+                "CONFIG",
+                None,
+                &format!("IP制限: {} を{}", raw_ip, action_label),
+                &format!("現在の遮断IP一覧: {:?}", cfg.blocked_ips),
+            );
+
+            (StatusCode::OK, Json(ApiResponse::ok(cfg.blocked_ips)))
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::err(e.to_string())),
+        ),
+    }
+}
+
+/// 全リクエストに対してブロック済みIP（出禁IP）かどうかを判定するミドルウェア
+pub async fn ip_block_middleware(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    State(state): State<Arc<AppState>>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    // サーバーPC自身は常に許可
+    if !addr.ip().is_loopback() {
+        let client_ip = addr.ip().to_string();
+        if let Ok(cfg) = state.db.get_config() {
+            if cfg.blocked_ips.contains(&client_ip) {
+                return (
+                    StatusCode::FORBIDDEN,
+                    [(
+                        axum::http::header::CONTENT_TYPE,
+                        "text/html; charset=utf-8",
+                    )],
+                    format!(
+                        "<!DOCTYPE html><html lang='ja'><head><meta charset='UTF-8'><title>アクセス制限</title></head><body style='font-family:sans-serif; text-align:center; padding:60px; background:#f8fafc; color:#0f172a;'><div style='max-width:520px; margin:0 auto; background:white; padding:32px; border-radius:8px; border:1px solid #e2e8f0; box-shadow:0 4px 12px rgba(0,0,0,0.05);'><h2 style='color:#dc2626; margin-bottom:12px;'>アクセスが制限されています (403 Forbidden)</h2><p style='color:#475569; line-height:1.6;'>あなたの端末（IP: <b>{}</b>）からのアクセスは、現在システム管理者によって停止されています。</p></div></body></html>",
+                        client_ip
+                    ),
+                )
+                    .into_response();
+            }
+        }
+    }
+
+    next.run(request).await
+}
+
 /// ソート済みデータ一式取得（日付別シート / 融資実行日順 / 金消日順 / 統合データ）
 pub async fn get_sorted_views(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     match state.db.get_config() {

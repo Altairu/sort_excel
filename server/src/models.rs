@@ -114,6 +114,8 @@ pub struct AppConfig {
     pub export_file_name: String,
     pub backup_retention_days: u32,
     pub auto_export_on_change: bool,
+    #[serde(default)]
+    pub blocked_ips: Vec<String>,
 }
 
 impl Default for AppConfig {
@@ -185,6 +187,7 @@ impl Default for AppConfig {
             export_file_name: "受託確認票.xlsx".into(),
             backup_retention_days: 7,
             auto_export_on_change: true,
+            blocked_ips: Vec::new(),
         }
     }
 }

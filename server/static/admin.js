@@ -129,6 +129,9 @@ function populateConfigFields() {
   document.getElementById('settingExportFileName').value = adminConfig.export_file_name || '受託確認票.xlsx';
   document.getElementById('settingRetentionDays').value = adminConfig.backup_retention_days || 7;
   document.getElementById('settingAutoExport').checked = !!adminConfig.auto_export_on_change;
+
+  // 5. 遮断IPリストの描画
+  renderBlockedIps();
 }
 
 function renderStaffOrderList(staffList) {
@@ -500,6 +503,95 @@ async function loadTrashList() {
   }
 }
 
+// IPアドレス遮断（出禁）/ 解除の切り替え処理
+function extractRawIp(ipDisplay) {
+  if (!ipDisplay) return '';
+  return String(ipDisplay).split(/\s+/)[0].trim();
+}
+
+function isLoopbackIp(rawIp) {
+  return !rawIp || rawIp === '127.0.0.1' || rawIp === '::1' || rawIp.toLowerCase() === 'localhost';
+}
+
+function renderBlockedIps() {
+  const container = document.getElementById('blockedIpBadges');
+  if (!container || !adminConfig) return;
+  const list = adminConfig.blocked_ips || [];
+  container.innerHTML = '';
+
+  if (list.length === 0) {
+    container.innerHTML = '<span style="font-size: 12px; color: #64748b;">現在遮断されているIPアドレスはありません</span>';
+    return;
+  }
+
+  list.forEach(ip => {
+    const span = document.createElement('span');
+    span.className = 'stat-badge';
+    span.style.backgroundColor = '#ffe4e6';
+    span.style.color = '#9f1239';
+    span.style.border = '1px solid #fda4af';
+    span.style.padding = '4px 10px';
+    span.style.fontFamily = 'monospace';
+    span.innerHTML = `
+      <b>${escapeHtml(ip)}</b>
+      <button type="button" class="btn btn-sm btn-outline unblock-ip-btn" data-ip="${escapeHtml(ip)}" style="padding: 1px 6px; font-size: 11px; margin-left: 6px;">解除</button>
+    `;
+    container.appendChild(span);
+  });
+
+  container.querySelectorAll('.unblock-ip-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      toggleIpBlockStatus(btn.dataset.ip, false);
+    });
+  });
+}
+
+async function toggleIpBlockStatus(ipStr, shouldBlock) {
+  const rawIp = extractRawIp(ipStr);
+  if (!rawIp) return;
+
+  if (shouldBlock) {
+    if (!confirm(`IPアドレス「${rawIp}」からのアクセスを遮断（出禁）にしますか？\n（いつでも解除できます）`)) {
+      return;
+    }
+  }
+
+  try {
+    const res = await fetch('/api/ip-block', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ip: rawIp, block: shouldBlock }),
+    });
+    const json = await res.json();
+    if (json.success && Array.isArray(json.data)) {
+      if (adminConfig) {
+        adminConfig.blocked_ips = json.data;
+      }
+      renderBlockedIps();
+      await loadAuditLogs();
+      showToast(
+        shouldBlock ? `IP: ${rawIp} をアクセス遮断（出禁）に設定しました` : `IP: ${rawIp} のアクセス遮断を解除しました`,
+        shouldBlock ? 'info' : 'success'
+      );
+    } else {
+      showToast(json.error || 'IP制限の更新に失敗しました', 'error');
+    }
+  } catch (err) {
+    showToast('通信エラーが発生しました', 'error');
+  }
+}
+
+document.getElementById('btnManualBlockIp').addEventListener('click', () => {
+  const input = document.getElementById('manualBlockIpInput');
+  const val = (input.value || '').trim();
+  if (!val) {
+    showToast('遮断するIPアドレスを入力してください', 'error');
+    return;
+  }
+  toggleIpBlockStatus(val, true);
+  input.value = '';
+});
+
 // アクセス・操作履歴ログ一覧と検索
 function getActionBadge(actionType) {
   const map = {
@@ -535,17 +627,43 @@ async function loadAuditLogs() {
     const res = await fetch(`/api/audit-logs?${params.toString()}`);
     const json = await res.json();
     if (json.success && json.data && json.data.length > 0) {
+      const blockedList = (adminConfig && adminConfig.blocked_ips) ? adminConfig.blocked_ips : [];
+
       json.data.forEach(log => {
+        const rawIp = extractRawIp(log.client_ip);
+        const isLocal = isLoopbackIp(rawIp);
+        const isBlocked = blockedList.includes(rawIp);
+
+        let ipActionBtn = '';
+        if (!isLocal) {
+          if (isBlocked) {
+            ipActionBtn = `<button type="button" class="btn btn-sm btn-outline log-ip-toggle-btn" data-ip="${escapeHtml(rawIp)}" data-block="false" style="margin-left:8px; color:var(--secondary); border-color:var(--secondary); padding:2px 6px; font-size:11px;">遮断中 (解除)</button>`;
+          } else {
+            ipActionBtn = `<button type="button" class="btn btn-sm btn-outline log-ip-toggle-btn" data-ip="${escapeHtml(rawIp)}" data-block="true" style="margin-left:8px; color:var(--danger); border-color:var(--danger); padding:2px 6px; font-size:11px;">出禁にする</button>`;
+          }
+        }
+
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td>${escapeHtml(log.created_at)}</td>
           <td>${getActionBadge(log.action_type)}</td>
           <td><b>${escapeHtml(log.actor_name || '(未選択)')}</b></td>
-          <td style="font-family: monospace;">${escapeHtml(log.client_ip)}</td>
+          <td style="font-family: monospace;">
+            <span>${escapeHtml(log.client_ip)}</span>
+            ${ipActionBtn}
+          </td>
           <td><b>${escapeHtml(log.summary)}</b></td>
           <td style="white-space: normal; max-width: 480px; color: #334155;">${escapeHtml(log.details)}</td>
         `;
         tbody.appendChild(tr);
+      });
+
+      tbody.querySelectorAll('.log-ip-toggle-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const ip = btn.dataset.ip;
+          const shouldBlock = btn.dataset.block === 'true';
+          toggleIpBlockStatus(ip, shouldBlock);
+        });
       });
     } else {
       const tr = document.createElement('tr');
