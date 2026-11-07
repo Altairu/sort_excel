@@ -271,27 +271,35 @@ pub fn export_records_to_excel(
         .map(|(idx, name)| (name.clone(), idx))
         .collect();
 
-    // ソートヘルパー
+    // ソートヘルパー（設定された sort_keys に従い動的に比較）
     for (date_str, mut group) in date_groups {
         group.sort_by(|a, b| {
-            // 第1キー: 識別 (降順: 融資実行日 -> 金消日・面談日)
-            let cat_cmp = b.category.cmp(&a.category);
-            if cat_cmp != std::cmp::Ordering::Equal {
-                return cat_cmp;
-            }
+            for sk in &config.sort_keys {
+                let cmp = match sk.key.as_str() {
+                    "識別" => a.category.cmp(&b.category),
+                    "担当" => {
+                        let a_rank = staff_map.get(&a.staff).copied().unwrap_or(9999);
+                        let b_rank = staff_map.get(&b.staff).copied().unwrap_or(9999);
+                        a_rank.cmp(&b_rank)
+                    }
+                    "時間" => {
+                        let a_sec = parse_time_to_seconds(&a.time);
+                        let b_sec = parse_time_to_seconds(&b.time);
+                        a_sec.cmp(&b_sec)
+                    }
+                    "形態" => a.form_type.cmp(&b.form_type),
+                    "依頼内容" => a.request_content.cmp(&b.request_content),
+                    "管轄" => a.jurisdiction.cmp(&b.jurisdiction),
+                    "お客様氏名" => a.client_name.cmp(&b.client_name),
+                    _ => std::cmp::Ordering::Equal,
+                };
 
-            // 第2キー: 担当 (優先順位昇順)
-            let a_staff_rank = staff_map.get(&a.staff).copied().unwrap_or(9999);
-            let b_staff_rank = staff_map.get(&b.staff).copied().unwrap_or(9999);
-            let staff_cmp = a_staff_rank.cmp(&b_staff_rank);
-            if staff_cmp != std::cmp::Ordering::Equal {
-                return staff_cmp;
+                let final_cmp = if sk.ascending { cmp } else { cmp.reverse() };
+                if final_cmp != std::cmp::Ordering::Equal {
+                    return final_cmp;
+                }
             }
-
-            // 第3キー: 時間 (昇順)
-            let a_time_sec = parse_time_to_seconds(&a.time);
-            let b_time_sec = parse_time_to_seconds(&b.time);
-            a_time_sec.cmp(&b_time_sec)
+            std::cmp::Ordering::Equal
         });
 
         // シート名: YYYY-MM-DD

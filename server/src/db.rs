@@ -323,18 +323,18 @@ impl Db {
         let conn = self.conn.lock().unwrap();
 
         // 楽観的ロックのチェック
-        if let Some(expected_ver) = input.version {
-            let mut stmt = conn.prepare("SELECT version FROM records WHERE id = ?1 AND is_deleted = 0")?;
-            let current_ver: Result<i64, _> = stmt.query_row(params![id], |row| row.get(0));
-            match current_ver {
-                Ok(v) => {
+        let mut stmt = conn.prepare("SELECT version FROM records WHERE id = ?1 AND is_deleted = 0")?;
+        let current_ver: Result<i64, _> = stmt.query_row(params![id], |row| row.get(0));
+        match current_ver {
+            Ok(v) => {
+                if let Some(expected_ver) = input.version {
                     if v != expected_ver {
                         bail!("CONFLICT: 別のユーザーによってこの案件は既に更新されています。最新情報を読み込み直してください。");
                     }
                 }
-                Err(_) => {
-                    bail!("NOT_FOUND: 指定された案件が見つかりません。");
-                }
+            }
+            Err(_) => {
+                bail!("NOT_FOUND: 指定された案件が見つかりません。");
             }
         }
 
@@ -431,6 +431,101 @@ impl Db {
             "UPDATE records SET is_deleted = 1, updated_at = ?1 WHERE id = ?2",
             params![now, id],
         )?;
+        Ok(())
+    }
+
+    /// 論理削除されたレコード一覧を取得（ゴミ箱）
+    pub fn list_deleted_records(&self) -> Result<Vec<Record>> {
+        let conn = self.conn.lock().unwrap();
+        let sql = "SELECT id, status, acceptance_date, loan_date, loan_date_note, form_type, client_name, property_name, request_content, settlement_date, settlement_date_note, settlement_place, settlement_time, staff, confirmation, doc_check, agency, broker, jurisdiction, opponent_scrivener, remarks, attendance_time, attendance_place, attendee, same_day_application, execution_time, progress_application, progress_required_docs, progress_transfer_docs, progress_complete_docs, progress_receive_date, progress_tokyo_complete, progress_payment_date, is_deleted, version, created_at, updated_at FROM records WHERE is_deleted = 1 ORDER BY updated_at DESC, id DESC";
+        let mut stmt = conn.prepare(sql)?;
+        let rows = stmt.query_map([], |row| {
+            Ok(Record {
+                id: row.get(0)?,
+                status: row.get(1)?,
+                acceptance_date: row.get(2)?,
+                loan_date: row.get(3)?,
+                loan_date_note: row.get(4)?,
+                form_type: row.get(5)?,
+                client_name: row.get(6)?,
+                property_name: row.get(7)?,
+                request_content: row.get(8)?,
+                settlement_date: row.get(9)?,
+                settlement_date_note: row.get(10)?,
+                settlement_place: row.get(11)?,
+                settlement_time: row.get(12)?,
+                staff: row.get(13)?,
+                confirmation: row.get(14)?,
+                doc_check: row.get(15)?,
+                agency: row.get(16)?,
+                broker: row.get(17)?,
+                jurisdiction: row.get(18)?,
+                opponent_scrivener: row.get(19)?,
+                remarks: row.get(20)?,
+                attendance_time: row.get(21)?,
+                attendance_place: row.get(22)?,
+                attendee: row.get(23)?,
+                same_day_application: row.get(24)?,
+                execution_time: row.get(25)?,
+                progress_application: row.get(26)?,
+                progress_required_docs: row.get(27)?,
+                progress_transfer_docs: row.get(28)?,
+                progress_complete_docs: row.get(29)?,
+                progress_receive_date: row.get(30)?,
+                progress_tokyo_complete: row.get(31)?,
+                progress_payment_date: row.get(32)?,
+                is_deleted: row.get(33)?,
+                version: row.get(34)?,
+                created_at: row.get(35)?,
+                updated_at: row.get(36)?,
+            })
+        })?;
+
+        let mut records = Vec::new();
+        for r in rows {
+            records.push(r?);
+        }
+        Ok(records)
+    }
+
+    /// 論理削除されたレコードを復元
+    pub fn restore_record(&self, id: i64) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        conn.execute(
+            "UPDATE records SET is_deleted = 0, updated_at = ?1 WHERE id = ?2",
+            params![now, id],
+        )?;
+        Ok(())
+    }
+
+    /// レコードを物理削除（完全削除）
+    pub fn purge_record(&self, id: i64) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM records WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    /// 全レコードをクリア（インポート時の置換モード用）
+    pub fn clear_all_records(&self) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM records", [])?;
+        Ok(())
+    }
+
+    /// バックアップDBファイルから現在のDBへデータを復元
+    pub fn restore_from_backup_file(&self, backup_db_path: &std::path::Path) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let path_str = backup_db_path.to_string_lossy().replace('\'', "''");
+        conn.execute_batch(&format!(
+            "ATTACH DATABASE '{}' AS backup_db;
+             BEGIN;
+             DELETE FROM main.records;
+             INSERT INTO main.records SELECT * FROM backup_db.records;
+             COMMIT;
+             DETACH DATABASE backup_db;",
+            path_str
+        ))?;
         Ok(())
     }
 

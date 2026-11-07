@@ -2,6 +2,17 @@ let currentConfig = null;
 let currentRecords = [];
 let editingRecordId = null;
 
+const CUSTOM_OPTION_VALUE = '__CUSTOM__';
+
+// コンボボックス化対象のフィールド一覧
+const SELECT_WITH_CUSTOM_FIELDS = [
+  'field_status',
+  'field_staff',
+  'field_form_type',
+  'field_request_content',
+  'field_same_day_application',
+];
+
 // トースト表示
 function showToast(message, type = 'info') {
   const toast = document.getElementById('toast');
@@ -10,6 +21,22 @@ function showToast(message, type = 'info') {
   setTimeout(() => {
     toast.className = 'toast';
   }, 3500);
+}
+
+// 接続元PCがサーバー（管理者PC）かどうかを確認し、管理者画面へのリンクを表示
+async function checkSessionInfo() {
+  try {
+    const res = await fetch('/api/session');
+    const json = await res.json();
+    if (json.success && json.data && json.data.is_admin_pc) {
+      const adminLink = document.getElementById('btnAdminLink');
+      if (adminLink) {
+        adminLink.style.display = 'inline-flex';
+      }
+    }
+  } catch (err) {
+    console.error('セッション確認失敗:', err);
+  }
 }
 
 // 設定の読み込みとセレクトボックス初期化
@@ -31,7 +58,7 @@ function initSelectOptions() {
 
   // 担当フィルター
   const staffFilter = document.getElementById('staffFilter');
-  const currentVal = staffFilter.value;
+  const currentStaffVal = staffFilter.value;
   staffFilter.innerHTML = '<option value="">全員</option>';
   currentConfig.staff_order.forEach(s => {
     const opt = document.createElement('option');
@@ -39,26 +66,110 @@ function initSelectOptions() {
     opt.textContent = s;
     staffFilter.appendChild(opt);
   });
-  staffFilter.value = currentVal;
+  staffFilter.value = currentStaffVal;
 
-  // フォーム用セレクトボックス
-  populateSelect('field_staff', currentConfig.staff_order);
-  populateSelect('field_form_type', currentConfig.form_type_options);
-  populateSelect('field_request_content', currentConfig.request_content_options);
-  populateSelect('field_same_day_application', currentConfig.same_day_options);
-  populateSelect('field_status', currentConfig.status_options);
+  // ステータスフィルター
+  const statusFilter = document.getElementById('statusFilter');
+  const currentStatusVal = statusFilter.value || '進行中';
+  statusFilter.innerHTML = '<option value="">すべて</option>';
+  currentConfig.status_options.forEach(st => {
+    const opt = document.createElement('option');
+    opt.value = st;
+    opt.textContent = st;
+    statusFilter.appendChild(opt);
+  });
+  statusFilter.value = currentStatusVal;
+
+  // フォーム用セレクトボックス（自由入力フォールバック付き）
+  populateSelectWithCustom('field_staff', currentConfig.staff_order, true);
+  populateSelectWithCustom('field_form_type', currentConfig.form_type_options, true);
+  populateSelectWithCustom('field_request_content', currentConfig.request_content_options, true);
+  populateSelectWithCustom('field_same_day_application', currentConfig.same_day_options, true);
+  populateSelectWithCustom('field_status', currentConfig.status_options, false);
 }
 
-function populateSelect(id, options) {
+// セレクトボックスに選択肢と「その他（自由入力...）」を設定
+function populateSelectWithCustom(id, options, allowEmpty = true) {
   const el = document.getElementById(id);
+  const customInput = document.getElementById(`${id}_custom`);
   if (!el) return;
-  el.innerHTML = '<option value="">(未選択)</option>';
+
+  el.innerHTML = '';
+  if (allowEmpty) {
+    const emptyOpt = document.createElement('option');
+    emptyOpt.value = '';
+    emptyOpt.textContent = '(未選択)';
+    el.appendChild(emptyOpt);
+  }
+
   options.forEach(opt => {
     const o = document.createElement('option');
     o.value = opt;
     o.textContent = opt;
     el.appendChild(o);
   });
+
+  const customOpt = document.createElement('option');
+  customOpt.value = CUSTOM_OPTION_VALUE;
+  customOpt.textContent = 'その他（自由入力...）';
+  el.appendChild(customOpt);
+
+  if (!el.dataset.listenerAttached) {
+    el.addEventListener('change', () => {
+      if (!customInput) return;
+      if (el.value === CUSTOM_OPTION_VALUE) {
+        customInput.style.display = 'block';
+        customInput.focus();
+      } else {
+        customInput.style.display = 'none';
+        customInput.value = '';
+      }
+    });
+    el.dataset.listenerAttached = 'true';
+  }
+}
+
+// セレクトボックスに値をセット（選択肢にない値の場合は自動的に自由入力欄へ展開）
+function setSelectOrCustomValue(id, value) {
+  const el = document.getElementById(id);
+  const customInput = document.getElementById(`${id}_custom`);
+  if (!el) return;
+
+  const val = value || '';
+  const hasOption = Array.from(el.options).some(
+    opt => opt.value === val && opt.value !== CUSTOM_OPTION_VALUE
+  );
+
+  if (hasOption) {
+    el.value = val;
+    if (customInput) {
+      customInput.style.display = 'none';
+      customInput.value = '';
+    }
+  } else if (val !== '') {
+    el.value = CUSTOM_OPTION_VALUE;
+    if (customInput) {
+      customInput.style.display = 'block';
+      customInput.value = val;
+    }
+  } else {
+    el.value = '';
+    if (customInput) {
+      customInput.style.display = 'none';
+      customInput.value = '';
+    }
+  }
+}
+
+// セレクトボックスまたは自由入力欄から最終的な送信値を取得
+function getSelectOrCustomValue(id) {
+  const el = document.getElementById(id);
+  const customInput = document.getElementById(`${id}_custom`);
+  if (!el) return '';
+  if (el.value === CUSTOM_OPTION_VALUE) {
+    return customInput ? customInput.value.trim() : '';
+  }
+  return el.value;
 }
 
 // 統計情報取得
@@ -108,7 +219,13 @@ function renderTable(records) {
 
   if (records.length === 0) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td colspan="12" style="text-align:center; padding: 24px; color: var(--text-muted);">該当する案件がありません</td>`;
+    const td = document.createElement('td');
+    td.colSpan = 12;
+    td.style.textAlign = 'center';
+    td.style.padding = '24px';
+    td.style.color = 'var(--text-muted)';
+    td.textContent = '該当する案件がありません';
+    tr.appendChild(td);
     tbody.appendChild(tr);
     return;
   }
@@ -117,13 +234,12 @@ function renderTable(records) {
     const tr = document.createElement('tr');
     tr.dataset.id = r.id;
 
-    // ステータスバッジ
     let badgeClass = 'badge-active';
     if (r.status === '完了') badgeClass = 'badge-done';
     if (r.status === '日程未定' || r.status === 'リスケ') badgeClass = 'badge-pending';
 
     tr.innerHTML = `
-      <td>${r.id}</td>
+      <td>${escapeHtml(String(r.id))}</td>
       <td><span class="stat-badge ${badgeClass}">${escapeHtml(r.status)}</span></td>
       <td>${escapeHtml(r.loan_date || r.loan_date_note || '-')}</td>
       <td>${escapeHtml(r.settlement_date || r.settlement_date_note || '-')}</td>
@@ -135,12 +251,11 @@ function renderTable(records) {
       <td>${escapeHtml(r.attendance_time || '-')}</td>
       <td>${escapeHtml(r.same_day_application || '-')}</td>
       <td>
-        <button class="btn btn-sm btn-outline edit-row-btn" data-id="${r.id}">編集</button>
+        <button class="btn btn-sm btn-outline edit-row-btn" data-id="${escapeHtml(String(r.id))}">編集</button>
       </td>
     `;
 
-    // 行クリックで編集パネルを開く
-    tr.addEventListener('click', (e) => {
+    tr.addEventListener('click', () => {
       openEditPanel(r.id);
     });
 
@@ -150,7 +265,12 @@ function renderTable(records) {
 
 function escapeHtml(str) {
   if (!str) return '';
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // 編集パネル開閉
@@ -160,29 +280,38 @@ function openEditPanel(recordId = null) {
   const backdrop = document.getElementById('panelBackdrop');
   const title = document.getElementById('panelTitle');
   const form = document.getElementById('recordForm');
+  const btnDelete = document.getElementById('btnDeleteRecord');
 
   form.reset();
+  SELECT_WITH_CUSTOM_FIELDS.forEach(id => {
+    const customInput = document.getElementById(`${id}_custom`);
+    if (customInput) {
+      customInput.style.display = 'none';
+      customInput.value = '';
+    }
+  });
 
   if (recordId) {
     title.textContent = `案件の編集 (ID: ${recordId})`;
+    if (btnDelete) btnDelete.style.display = 'inline-flex';
     const rec = currentRecords.find(r => r.id === recordId);
     if (rec) {
       document.getElementById('field_id').value = rec.id;
       document.getElementById('field_version').value = rec.version;
-      document.getElementById('field_status').value = rec.status;
-      document.getElementById('field_staff').value = rec.staff;
+      setSelectOrCustomValue('field_status', rec.status);
+      setSelectOrCustomValue('field_staff', rec.staff);
       document.getElementById('field_acceptance_date').value = rec.acceptance_date;
-      document.getElementById('field_form_type').value = rec.form_type;
+      setSelectOrCustomValue('field_form_type', rec.form_type);
       document.getElementById('field_client_name').value = rec.client_name;
       document.getElementById('field_property_name').value = rec.property_name;
-      document.getElementById('field_request_content').value = rec.request_content;
+      setSelectOrCustomValue('field_request_content', rec.request_content);
       document.getElementById('field_jurisdiction').value = rec.jurisdiction;
       document.getElementById('field_loan_date').value = rec.loan_date;
       document.getElementById('field_loan_date_note').value = rec.loan_date_note;
       document.getElementById('field_attendance_time').value = rec.attendance_time;
       document.getElementById('field_attendee').value = rec.attendee;
       document.getElementById('field_attendance_place').value = rec.attendance_place;
-      document.getElementById('field_same_day_application').value = rec.same_day_application;
+      setSelectOrCustomValue('field_same_day_application', rec.same_day_application);
       document.getElementById('field_execution_time').value = rec.execution_time;
       document.getElementById('field_settlement_date').value = rec.settlement_date;
       document.getElementById('field_settlement_time').value = rec.settlement_time;
@@ -194,13 +323,21 @@ function openEditPanel(recordId = null) {
       document.getElementById('field_agency').value = rec.agency;
       document.getElementById('field_opponent_scrivener').value = rec.opponent_scrivener;
       document.getElementById('field_remarks').value = rec.remarks;
+      document.getElementById('field_progress_application').value = rec.progress_application || '';
+      document.getElementById('field_progress_required_docs').value = rec.progress_required_docs || '';
+      document.getElementById('field_progress_transfer_docs').value = rec.progress_transfer_docs || '';
+      document.getElementById('field_progress_complete_docs').value = rec.progress_complete_docs || '';
+      document.getElementById('field_progress_receive_date').value = rec.progress_receive_date || '';
+      document.getElementById('field_progress_tokyo_complete').value = rec.progress_tokyo_complete || '';
+      document.getElementById('field_progress_payment_date').value = rec.progress_payment_date || '';
     }
   } else {
     title.textContent = '新規案件の登録';
+    if (btnDelete) btnDelete.style.display = 'none';
     document.getElementById('field_id').value = '';
     document.getElementById('field_version').value = '';
-    document.getElementById('field_status').value = '進行中';
-    document.getElementById('field_same_day_application').value = 'オンライン';
+    setSelectOrCustomValue('field_status', '進行中');
+    setSelectOrCustomValue('field_same_day_application', 'オンライン');
   }
 
   backdrop.classList.add('active');
@@ -221,20 +358,20 @@ document.getElementById('recordForm').addEventListener('submit', async (e) => {
   const version = document.getElementById('field_version').value;
 
   const data = {
-    status: document.getElementById('field_status').value,
-    staff: document.getElementById('field_staff').value,
+    status: getSelectOrCustomValue('field_status') || '進行中',
+    staff: getSelectOrCustomValue('field_staff'),
     acceptance_date: document.getElementById('field_acceptance_date').value,
-    form_type: document.getElementById('field_form_type').value,
+    form_type: getSelectOrCustomValue('field_form_type'),
     client_name: document.getElementById('field_client_name').value,
     property_name: document.getElementById('field_property_name').value,
-    request_content: document.getElementById('field_request_content').value,
+    request_content: getSelectOrCustomValue('field_request_content'),
     jurisdiction: document.getElementById('field_jurisdiction').value,
     loan_date: document.getElementById('field_loan_date').value,
     loan_date_note: document.getElementById('field_loan_date_note').value,
     attendance_time: document.getElementById('field_attendance_time').value,
     attendee: document.getElementById('field_attendee').value,
     attendance_place: document.getElementById('field_attendance_place').value,
-    same_day_application: document.getElementById('field_same_day_application').value,
+    same_day_application: getSelectOrCustomValue('field_same_day_application'),
     execution_time: document.getElementById('field_execution_time').value,
     settlement_date: document.getElementById('field_settlement_date').value,
     settlement_time: document.getElementById('field_settlement_time').value,
@@ -246,6 +383,13 @@ document.getElementById('recordForm').addEventListener('submit', async (e) => {
     agency: document.getElementById('field_agency').value,
     opponent_scrivener: document.getElementById('field_opponent_scrivener').value,
     remarks: document.getElementById('field_remarks').value,
+    progress_application: document.getElementById('field_progress_application').value,
+    progress_required_docs: document.getElementById('field_progress_required_docs').value,
+    progress_transfer_docs: document.getElementById('field_progress_transfer_docs').value,
+    progress_complete_docs: document.getElementById('field_progress_complete_docs').value,
+    progress_receive_date: document.getElementById('field_progress_receive_date').value,
+    progress_tokyo_complete: document.getElementById('field_progress_tokyo_complete').value,
+    progress_payment_date: document.getElementById('field_progress_payment_date').value,
     version: version ? parseInt(version, 10) : undefined,
   };
 
@@ -279,6 +423,30 @@ document.getElementById('recordForm').addEventListener('submit', async (e) => {
   }
 });
 
+// 案件削除（ゴミ箱へ移動）
+document.getElementById('btnDeleteRecord').addEventListener('click', async () => {
+  const id = document.getElementById('field_id').value;
+  if (!id) return;
+  if (!confirm(`案件 ID: ${id} を削除しますか？（管理者のゴミ箱から復元可能です）`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/records/${id}`, { method: 'DELETE' });
+    const json = await res.json();
+    if (json.success) {
+      showToast('案件を削除しました', 'success');
+      closeEditPanel();
+      loadRecords();
+      loadStats();
+    } else {
+      showToast(json.error || '削除に失敗しました', 'error');
+    }
+  } catch (err) {
+    showToast('通信エラーが発生しました', 'error');
+  }
+});
+
 // 手動Excel出力
 document.getElementById('btnExport').addEventListener('click', async () => {
   showToast('Excelファイルを出力中...', 'info');
@@ -306,185 +474,6 @@ document.getElementById('btnOkHelp').addEventListener('click', () => {
   document.getElementById('helpModal').classList.remove('active');
 });
 
-// 管理設定モーダル
-document.getElementById('btnSettings').addEventListener('click', () => {
-  openSettingsModal();
-});
-document.getElementById('btnCloseSettings').addEventListener('click', () => {
-  document.getElementById('settingsModal').classList.remove('active');
-});
-document.getElementById('btnCancelSettings').addEventListener('click', () => {
-  document.getElementById('settingsModal').classList.remove('active');
-});
-
-function openSettingsModal() {
-  if (!currentConfig) return;
-
-  renderStaffOrderList(currentConfig.staff_order);
-  document.getElementById('settingFormTypes').value = currentConfig.form_type_options.join('\n');
-  document.getElementById('settingRequestContents').value = currentConfig.request_content_options.join('\n');
-
-  loadBackupList();
-  document.getElementById('settingsModal').classList.add('active');
-}
-
-function renderStaffOrderList(staffList) {
-  const ul = document.getElementById('staffOrderList');
-  ul.innerHTML = '';
-  staffList.forEach((s, idx) => {
-    const li = document.createElement('li');
-    li.className = 'reorder-item';
-    li.innerHTML = `
-      <span>${idx + 1}. ${escapeHtml(s)}</span>
-      <div class="reorder-actions">
-        <button class="btn btn-sm btn-outline move-up-btn" data-idx="${idx}">↑</button>
-        <button class="btn btn-sm btn-outline move-down-btn" data-idx="${idx}">↓</button>
-        <button class="btn btn-sm btn-outline delete-staff-btn" data-idx="${idx}">削除</button>
-      </div>
-    `;
-    ul.appendChild(li);
-  });
-
-  // 上下移動イベント
-  ul.querySelectorAll('.move-up-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const idx = parseInt(btn.dataset.idx, 10);
-      if (idx > 0) {
-        const tmp = staffList[idx];
-        staffList[idx] = staffList[idx - 1];
-        staffList[idx - 1] = tmp;
-        renderStaffOrderList(staffList);
-      }
-    });
-  });
-
-  ul.querySelectorAll('.move-down-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const idx = parseInt(btn.dataset.idx, 10);
-      if (idx < staffList.length - 1) {
-        const tmp = staffList[idx];
-        staffList[idx] = staffList[idx + 1];
-        staffList[idx + 1] = tmp;
-        renderStaffOrderList(staffList);
-      }
-    });
-  });
-
-  ul.querySelectorAll('.delete-staff-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const idx = parseInt(btn.dataset.idx, 10);
-      staffList.splice(idx, 1);
-      renderStaffOrderList(staffList);
-    });
-  });
-}
-
-document.getElementById('btnAddStaff').addEventListener('click', () => {
-  const input = document.getElementById('newStaffInput');
-  const val = input.value.trim();
-  if (val && currentConfig) {
-    currentConfig.staff_order.push(val);
-    renderStaffOrderList(currentConfig.staff_order);
-    input.value = '';
-  }
-});
-
-// バックアップ一覧取得
-async function loadBackupList() {
-  try {
-    const res = await fetch('/api/backups');
-    const json = await res.json();
-    const tbody = document.getElementById('backupListTbody');
-    tbody.innerHTML = '';
-    if (json.success && json.data.length > 0) {
-      json.data.forEach(b => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td>${b.date_str}</td>
-          <td>${b.created_at}</td>
-          <td>${b.excel_file || '-'}</td>
-          <td>${b.db_file || '-'}</td>
-        `;
-        tbody.appendChild(tr);
-      });
-    } else {
-      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color: var(--text-muted);">バックアップ履歴はまだありません</td></tr>';
-    }
-  } catch (err) {
-    console.error('バックアップ一覧取得失敗:', err);
-  }
-}
-
-// 設定保存
-document.getElementById('btnSaveSettings').addEventListener('click', async () => {
-  if (!currentConfig) return;
-
-  currentConfig.form_type_options = document.getElementById('settingFormTypes').value
-    .split('\n')
-    .map(s => s.trim())
-    .filter(Boolean);
-
-  currentConfig.request_content_options = document.getElementById('settingRequestContents').value
-    .split('\n')
-    .map(s => s.trim())
-    .filter(Boolean);
-
-  try {
-    const res = await fetch('/api/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(currentConfig),
-    });
-    const json = await res.json();
-    if (json.success) {
-      showToast('設定を保存し、Excelを再ソートしました', 'success');
-      document.getElementById('settingsModal').classList.remove('active');
-      initSelectOptions();
-      loadRecords();
-    } else {
-      showToast(json.error || '設定の保存に失敗しました', 'error');
-    }
-  } catch (err) {
-    showToast('通信エラーが発生しました', 'error');
-  }
-});
-
-// インポート実行
-document.getElementById('btnExecuteImport').addEventListener('click', async () => {
-  const filePath = document.getElementById('importFilePath').value.trim();
-  const resDiv = document.getElementById('importResult');
-  resDiv.innerHTML = '<span style="color:var(--text-muted)">取り込みを実行中...</span>';
-
-  try {
-    const res = await fetch('/api/import', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ file_path: filePath }),
-    });
-    const json = await res.json();
-    if (json.success) {
-      resDiv.innerHTML = `<span style="color:var(--secondary)">${json.data}</span>`;
-      showToast(json.data, 'success');
-      loadRecords();
-      loadStats();
-    } else {
-      resDiv.innerHTML = `<span style="color:var(--danger)">エラー: ${json.error}</span>`;
-    }
-  } catch (err) {
-    resDiv.innerHTML = `<span style="color:var(--danger)">通信エラー</span>`;
-  }
-});
-
-// 設定タブ切り替え
-document.querySelectorAll('.settings-tabs .tab-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.settings-tabs .tab-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById(btn.dataset.tab).classList.add('active');
-  });
-});
-
 // 検索とフィルターのイベント
 let debounceTimer;
 document.getElementById('searchInput').addEventListener('input', () => {
@@ -510,6 +499,7 @@ document.getElementById('panelBackdrop').addEventListener('click', closeEditPane
 
 // 初期化実行
 window.addEventListener('DOMContentLoaded', async () => {
+  await checkSessionInfo();
   await loadConfig();
   await loadStats();
   await loadRecords();

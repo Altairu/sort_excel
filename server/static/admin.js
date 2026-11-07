@@ -1,0 +1,449 @@
+let adminConfig = null;
+
+function showToast(message, type = 'info') {
+  const toast = document.getElementById('toast');
+  toast.textContent = message;
+  toast.className = `toast show ${type}`;
+  setTimeout(() => {
+    toast.className = 'toast';
+  }, 3500);
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// 統計情報の読み込み
+async function loadAdminStats() {
+  try {
+    const res = await fetch('/api/stats');
+    const json = await res.json();
+    if (json.success && json.data) {
+      document.getElementById('adminStatTotal').textContent = json.data.total_count;
+      document.getElementById('adminStatTrash').textContent = json.data.trash_count;
+      document.getElementById('navTrashCount').textContent = json.data.trash_count;
+    }
+  } catch (err) {
+    console.error('統計取得失敗:', err);
+  }
+}
+
+// 設定の読み込みと画面への反映
+async function loadAdminConfig() {
+  try {
+    const res = await fetch('/api/config');
+    const json = await res.json();
+    if (json.success) {
+      adminConfig = json.data;
+      populateConfigFields();
+    }
+  } catch (err) {
+    showToast('設定の読み込みに失敗しました', 'error');
+  }
+}
+
+function populateConfigFields() {
+  if (!adminConfig) return;
+
+  // 1. 担当順リスト
+  renderStaffOrderList(adminConfig.staff_order);
+
+  // 2. ソートキー
+  const keys = adminConfig.sort_keys || [];
+  if (keys[0]) {
+    document.getElementById('sortKey1').value = keys[0].key;
+    document.getElementById('sortOrder1').value = keys[0].ascending ? 'asc' : 'desc';
+  }
+  if (keys[1]) {
+    document.getElementById('sortKey2').value = keys[1].key;
+    document.getElementById('sortOrder2').value = keys[1].ascending ? 'asc' : 'desc';
+  }
+  if (keys[2]) {
+    document.getElementById('sortKey3').value = keys[2].key;
+    document.getElementById('sortOrder3').value = keys[2].ascending ? 'asc' : 'desc';
+  }
+
+  // 3. 選択肢マスター
+  document.getElementById('settingFormTypes').value = (adminConfig.form_type_options || []).join('\n');
+  document.getElementById('settingRequestContents').value = (adminConfig.request_content_options || []).join('\n');
+  document.getElementById('settingSameDayOptions').value = (adminConfig.same_day_options || []).join('\n');
+  document.getElementById('settingStatusOptions').value = (adminConfig.status_options || []).join('\n');
+
+  // 4. 出力先と自動化設定
+  document.getElementById('settingExportDir').value = adminConfig.export_dir || './exports';
+  document.getElementById('settingExportFileName').value = adminConfig.export_file_name || '受託確認票.xlsx';
+  document.getElementById('settingRetentionDays').value = adminConfig.backup_retention_days || 7;
+  document.getElementById('settingAutoExport').checked = !!adminConfig.auto_export_on_change;
+}
+
+function renderStaffOrderList(staffList) {
+  const ul = document.getElementById('staffOrderList');
+  ul.innerHTML = '';
+  staffList.forEach((s, idx) => {
+    const li = document.createElement('li');
+    li.className = 'reorder-item';
+    li.innerHTML = `
+      <span>${idx + 1}. ${escapeHtml(s)}</span>
+      <div class="reorder-actions">
+        <button type="button" class="btn btn-sm btn-outline move-up-btn" data-idx="${idx}">↑ 上へ</button>
+        <button type="button" class="btn btn-sm btn-outline move-down-btn" data-idx="${idx}">↓ 下へ</button>
+        <button type="button" class="btn btn-sm btn-outline delete-staff-btn" data-idx="${idx}" style="color:var(--danger);">削除</button>
+      </div>
+    `;
+    ul.appendChild(li);
+  });
+
+  ul.querySelectorAll('.move-up-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.idx, 10);
+      if (idx > 0) {
+        const tmp = staffList[idx];
+        staffList[idx] = staffList[idx - 1];
+        staffList[idx - 1] = tmp;
+        renderStaffOrderList(staffList);
+      }
+    });
+  });
+
+  ul.querySelectorAll('.move-down-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.idx, 10);
+      if (idx < staffList.length - 1) {
+        const tmp = staffList[idx];
+        staffList[idx] = staffList[idx + 1];
+        staffList[idx + 1] = tmp;
+        renderStaffOrderList(staffList);
+      }
+    });
+  });
+
+  ul.querySelectorAll('.delete-staff-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.idx, 10);
+      staffList.splice(idx, 1);
+      renderStaffOrderList(staffList);
+    });
+  });
+}
+
+document.getElementById('btnAddStaff').addEventListener('click', () => {
+  const input = document.getElementById('newStaffInput');
+  const val = input.value.trim();
+  if (val && adminConfig) {
+    adminConfig.staff_order.push(val);
+    renderStaffOrderList(adminConfig.staff_order);
+    input.value = '';
+  }
+});
+
+// 設定の保存（全設定ボタン共通）
+async function saveConfig() {
+  if (!adminConfig) return;
+
+  adminConfig.sort_keys = [
+    {
+      key: document.getElementById('sortKey1').value,
+      ascending: document.getElementById('sortOrder1').value === 'asc',
+    },
+    {
+      key: document.getElementById('sortKey2').value,
+      ascending: document.getElementById('sortOrder2').value === 'asc',
+    },
+    {
+      key: document.getElementById('sortKey3').value,
+      ascending: document.getElementById('sortOrder3').value === 'asc',
+    },
+  ];
+
+  adminConfig.form_type_options = document.getElementById('settingFormTypes').value
+    .split('\n')
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  adminConfig.request_content_options = document.getElementById('settingRequestContents').value
+    .split('\n')
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  adminConfig.same_day_options = document.getElementById('settingSameDayOptions').value
+    .split('\n')
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  adminConfig.status_options = document.getElementById('settingStatusOptions').value
+    .split('\n')
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  adminConfig.export_dir = document.getElementById('settingExportDir').value.trim();
+  adminConfig.export_file_name = document.getElementById('settingExportFileName').value.trim();
+  adminConfig.backup_retention_days = parseInt(document.getElementById('settingRetentionDays').value, 10) || 7;
+  adminConfig.auto_export_on_change = document.getElementById('settingAutoExport').checked;
+
+  try {
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(adminConfig),
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast('管理者設定を保存し、Excelへ反映しました', 'success');
+    } else {
+      showToast(json.error || '設定保存に失敗しました', 'error');
+    }
+  } catch (err) {
+    showToast('通信エラーが発生しました', 'error');
+  }
+}
+
+document.querySelectorAll('.btn-save-config').forEach(btn => {
+  btn.addEventListener('click', saveConfig);
+});
+
+// 手動Excel出力
+document.getElementById('btnManualExport').addEventListener('click', async () => {
+  showToast('Excelを再出力しています...', 'info');
+  try {
+    const res = await fetch('/api/export', { method: 'POST' });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.data || 'Excelを出力しました', 'success');
+    } else {
+      showToast(json.error || 'Excel出力に失敗しました', 'error');
+    }
+  } catch (err) {
+    showToast('通信エラーが発生しました', 'error');
+  }
+});
+
+// Excel一括インポート
+document.getElementById('btnExecuteImport').addEventListener('click', async () => {
+  const filePath = document.getElementById('importFilePath').value.trim();
+  const mode = document.getElementById('importMode').value;
+  const resDiv = document.getElementById('importResult');
+
+  if (mode === 'replace') {
+    if (!confirm('現在の全案件データをクリアして、指定したExcelファイルの内容で総入れ替えします。よろしいですか？')) {
+      return;
+    }
+  }
+
+  resDiv.style.color = 'var(--text-muted)';
+  resDiv.textContent = '取り込みを実行中...';
+
+  try {
+    const res = await fetch('/api/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_path: filePath, mode }),
+    });
+    const json = await res.json();
+    if (json.success) {
+      resDiv.style.color = 'var(--secondary)';
+      resDiv.textContent = json.data;
+      showToast(json.data, 'success');
+      loadAdminStats();
+    } else {
+      resDiv.style.color = 'var(--danger)';
+      resDiv.textContent = `エラー: ${json.error}`;
+    }
+  } catch (err) {
+    resDiv.style.color = 'var(--danger)';
+    resDiv.textContent = '通信エラーが発生しました';
+  }
+});
+
+// バックアップ一覧と操作
+async function loadBackupList() {
+  const tbody = document.getElementById('backupListTbody');
+  tbody.innerHTML = '';
+
+  try {
+    const res = await fetch('/api/backups');
+    const json = await res.json();
+    if (json.success && json.data && json.data.length > 0) {
+      json.data.forEach(b => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><b>${escapeHtml(b.date_str)}</b></td>
+          <td>${escapeHtml(b.created_at)}</td>
+          <td>${escapeHtml(b.excel_file || '-')}</td>
+          <td>${escapeHtml(b.db_file || '-')}</td>
+          <td>
+            ${
+              b.db_file
+                ? `<button class="btn btn-sm btn-outline restore-backup-btn" data-date="${escapeHtml(b.date_str)}">この時点に復元</button>`
+                : '-'
+            }
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      tbody.querySelectorAll('.restore-backup-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const dateStr = btn.dataset.date;
+          if (!confirm(`${dateStr} のバックアップ時点へ全案件データを復元しますか？現在のデータは上書きされます。`)) {
+            return;
+          }
+          try {
+            const r = await fetch('/api/backups/restore', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ date_str: dateStr }),
+            });
+            const j = await r.json();
+            if (j.success) {
+              showToast(j.data, 'success');
+              loadAdminStats();
+            } else {
+              showToast(j.error || '復元に失敗しました', 'error');
+            }
+          } catch (e) {
+            showToast('通信エラーが発生しました', 'error');
+          }
+        });
+      });
+    } else {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = 5;
+      td.style.textAlign = 'center';
+      td.style.color = 'var(--text-muted)';
+      td.textContent = 'バックアップ履歴はまだありません';
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    }
+  } catch (err) {
+    console.error('バックアップ一覧取得失敗:', err);
+  }
+}
+
+document.getElementById('btnCreateBackupNow').addEventListener('click', async () => {
+  try {
+    const res = await fetch('/api/backups', { method: 'POST' });
+    const json = await res.json();
+    if (json.success) {
+      showToast(json.data || 'バックアップを作成しました', 'success');
+      loadBackupList();
+    } else {
+      showToast(json.error || 'バックアップ作成に失敗しました', 'error');
+    }
+  } catch (err) {
+    showToast('通信エラーが発生しました', 'error');
+  }
+});
+
+// ゴミ箱（削除済み案件）一覧と操作
+async function loadTrashList() {
+  const tbody = document.getElementById('trashListTbody');
+  tbody.innerHTML = '';
+
+  try {
+    const res = await fetch('/api/trash');
+    const json = await res.json();
+    if (json.success && json.data && json.data.length > 0) {
+      json.data.forEach(r => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${escapeHtml(String(r.id))}</td>
+          <td>${escapeHtml(r.updated_at)}</td>
+          <td>${escapeHtml(r.status)}</td>
+          <td><b>${escapeHtml(r.client_name)}</b></td>
+          <td>${escapeHtml(r.property_name)}</td>
+          <td>${escapeHtml(r.staff)}</td>
+          <td>${escapeHtml(r.loan_date || r.loan_date_note || '-')}</td>
+          <td style="display:flex; gap:6px;">
+            <button class="btn btn-sm btn-secondary restore-trash-btn" data-id="${escapeHtml(String(r.id))}">復元</button>
+            <button class="btn btn-sm btn-outline purge-trash-btn" data-id="${escapeHtml(String(r.id))}" style="color:var(--danger); border-color:var(--danger);">完全削除</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      tbody.querySelectorAll('.restore-trash-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const id = btn.dataset.id;
+          try {
+            const r = await fetch(`/api/trash/${id}/restore`, { method: 'POST' });
+            const j = await r.json();
+            if (j.success) {
+              showToast('案件を復元し、Excelを更新しました', 'success');
+              loadTrashList();
+              loadAdminStats();
+            } else {
+              showToast(j.error || '復元に失敗しました', 'error');
+            }
+          } catch (e) {
+            showToast('通信エラーが発生しました', 'error');
+          }
+        });
+      });
+
+      tbody.querySelectorAll('.purge-trash-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const id = btn.dataset.id;
+          if (!confirm(`案件 ID: ${id} をデータベースから完全に消去しますか？（元に戻せません）`)) {
+            return;
+          }
+          try {
+            const r = await fetch(`/api/trash/${id}`, { method: 'DELETE' });
+            const j = await r.json();
+            if (j.success) {
+              showToast('案件を完全削除しました', 'success');
+              loadTrashList();
+              loadAdminStats();
+            } else {
+              showToast(j.error || '完全削除に失敗しました', 'error');
+            }
+          } catch (e) {
+            showToast('通信エラーが発生しました', 'error');
+          }
+        });
+      });
+    } else {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = 8;
+      td.style.textAlign = 'center';
+      td.style.color = 'var(--text-muted)';
+      td.textContent = '削除された案件はありません';
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    }
+  } catch (err) {
+    console.error('ゴミ箱取得失敗:', err);
+  }
+}
+
+// ナビゲーション切り替え
+document.querySelectorAll('.admin-nav-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.admin-nav-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.admin-card').forEach(c => c.classList.remove('active'));
+
+    btn.classList.add('active');
+    const targetId = btn.dataset.target;
+    document.getElementById(targetId).classList.add('active');
+
+    if (targetId === 'pane-backup') {
+      loadBackupList();
+    } else if (targetId === 'pane-trash') {
+      loadTrashList();
+    }
+  });
+});
+
+window.addEventListener('DOMContentLoaded', async () => {
+  await loadAdminStats();
+  await loadAdminConfig();
+  await loadBackupList();
+  await loadTrashList();
+});

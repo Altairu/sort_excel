@@ -24,6 +24,7 @@ pub mod win {
 
     const WM_TRAY_CALLBACK: u32 = WM_USER + 101;
     const MENU_OPEN_BROWSER: usize = 1001;
+    const MENU_OPEN_ADMIN: usize = 1004;
     const MENU_OPEN_FOLDER: usize = 1002;
     const MENU_QUIT: usize = 1003;
 
@@ -50,13 +51,15 @@ pub mod win {
 
                         let hmenu: HMENU = CreatePopupMenu();
                         let label = to_wide("受託確認票 サーバー (稼働中)");
-                        let open_web = to_wide("ブラウザで画面を開く (&O)");
+                        let open_web = to_wide("使用者画面を開く (&O)");
+                        let open_admin = to_wide("管理者設定画面を開く (&A)");
                         let open_dir = to_wide("Excel保存先フォルダを開く (&F)");
                         let quit_text = to_wide("終了 (&X)");
 
                         AppendMenuW(hmenu, MF_STRING, 0, label.as_ptr());
                         AppendMenuW(hmenu, MF_SEPARATOR, 0, ptr::null());
                         AppendMenuW(hmenu, MF_STRING, MENU_OPEN_BROWSER, open_web.as_ptr());
+                        AppendMenuW(hmenu, MF_STRING, MENU_OPEN_ADMIN, open_admin.as_ptr());
                         AppendMenuW(hmenu, MF_STRING, MENU_OPEN_FOLDER, open_dir.as_ptr());
                         AppendMenuW(hmenu, MF_SEPARATOR, 0, ptr::null());
                         AppendMenuW(hmenu, MF_STRING, MENU_QUIT, quit_text.as_ptr());
@@ -79,6 +82,9 @@ pub mod win {
                 match wparam {
                     MENU_OPEN_BROWSER => {
                         let _ = open::that("http://localhost:8080");
+                    }
+                    MENU_OPEN_ADMIN => {
+                        let _ = open::that("http://localhost:8080/admin");
                     }
                     MENU_OPEN_FOLDER => {
                         let _ = open::that("exports");

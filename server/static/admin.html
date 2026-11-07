@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>管理者設定画面 - 受託確認票システム</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .admin-badge {
+      background-color: #1e293b;
+      color: #f8fafc;
+      font-size: 11px;
+      padding: 3px 10px;
+      border-radius: 9999px;
+      font-weight: 600;
+    }
+    .admin-layout {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      gap: 20px;
+      max-width: 1400px;
+      margin: 20px auto;
+      padding: 0 24px;
+    }
+    .admin-nav {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      height: fit-content;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+    }
+    .admin-nav-btn {
+      width: 100%;
+      text-align: left;
+      padding: 10px 14px;
+      border: none;
+      background: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      color: #334155;
+      margin-bottom: 4px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .admin-nav-btn:hover {
+      background-color: #f1f5f9;
+    }
+    .admin-nav-btn.active {
+      background-color: var(--primary);
+      color: white;
+    }
+    .admin-card {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 24px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+      display: none;
+    }
+    .admin-card.active {
+      display: block;
+    }
+    .admin-card h3 {
+      font-size: 17px;
+      margin-bottom: 6px;
+      color: #0f172a;
+    }
+    .admin-card .section-desc {
+      color: var(--text-muted);
+      font-size: 13px;
+      margin-bottom: 20px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .sort-key-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+      background: #f8fafc;
+      padding: 10px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+    }
+    .sort-key-row span {
+      font-weight: 600;
+      min-width: 80px;
+    }
+    .options-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    .save-bar {
+      margin-top: 24px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+    }
+  </style>
+</head>
+<body>
+  <!-- ヘッダー -->
+  <header class="header">
+    <div class="header-left">
+      <div class="logo">受託確認票 管理者コンソール</div>
+      <span class="admin-badge">サーバーPC専用 (localhost)</span>
+      <div class="stats-bar">
+        <span class="stat-badge">有効案件: <b id="adminStatTotal">-</b></span>
+        <span class="stat-badge">ゴミ箱: <b id="adminStatTrash">-</b></span>
+      </div>
+    </div>
+    <div class="header-right">
+      <button class="btn btn-secondary" id="btnManualExport">Excelを今すぐ再出力</button>
+      <a href="/" class="btn btn-outline" style="text-decoration: none;">← 使用者画面（案件一覧）へ戻る</a>
+    </div>
+  </header>
+
+  <div class="admin-layout">
+    <!-- 左サイドメニュー -->
+    <nav class="admin-nav">
+      <button class="admin-nav-btn active" data-target="pane-sort">担当順 / ソート条件</button>
+      <button class="admin-nav-btn" data-target="pane-options">選択肢マスター管理</button>
+      <button class="admin-nav-btn" data-target="pane-output">出力先 / 自動化設定</button>
+      <button class="admin-nav-btn" data-target="pane-import">Excel一括取り込み</button>
+      <button class="admin-nav-btn" data-target="pane-backup">バックアップ / 復元</button>
+      <button class="admin-nav-btn" data-target="pane-trash">
+        <span>ゴミ箱（削除済み）</span>
+        <span class="stat-badge" id="navTrashCount">0</span>
+      </button>
+    </nav>
+
+    <!-- メインペイン -->
+    <div class="admin-main">
+      <!-- 1. 担当順 / ソート条件 -->
+      <section class="admin-card active" id="pane-sort">
+        <h3>担当順 / 日付別シートのソート条件設定</h3>
+        <p class="section-desc">
+          Excel出力時の日付別シートで並べる優先順位を設定します。既存のPython版ツールと同じく、最大3段階のソートキーと担当者の並び順を自由に変更できます。
+        </p>
+
+        <div class="options-grid">
+          <div>
+            <h4 class="section-title">担当者の優先順位（上から順に優先）</h4>
+            <ul class="reorder-list" id="staffOrderList" style="max-height: 360px;"></ul>
+            <div class="input-with-btn">
+              <input type="text" id="newStaffInput" placeholder="新しい担当者名を入力...">
+              <button class="btn btn-secondary" type="button" id="btnAddStaff">追加</button>
+            </div>
+          </div>
+
+          <div>
+            <h4 class="section-title">日付別シートのソート優先キー</h4>
+            <div class="sort-key-row">
+              <span>第1キー</span>
+              <select id="sortKey1" class="form-control">
+                <option value="識別">識別（融資実行日 / 金消日）</option>
+                <option value="担当">担当</option>
+                <option value="時間">時間</option>
+                <option value="形態">形態</option>
+                <option value="依頼内容">依頼内容</option>
+                <option value="管轄">管轄</option>
+              </select>
+              <select id="sortOrder1" class="form-control" style="width: 140px;">
+                <option value="asc">昇順</option>
+                <option value="desc">降順</option>
+              </select>
+            </div>
+
+            <div class="sort-key-row">
+              <span>第2キー</span>
+              <select id="sortKey2" class="form-control">
+                <option value="識別">識別（融資実行日 / 金消日）</option>
+                <option value="担当">担当</option>
+                <option value="時間">時間</option>
+                <option value="形態">形態</option>
+                <option value="依頼内容">依頼内容</option>
+                <option value="管轄">管轄</option>
+              </select>
+              <select id="sortOrder2" class="form-control" style="width: 140px;">
+                <option value="asc">昇順</option>
+                <option value="desc">降順</option>
+              </select>
+            </div>
+
+            <div class="sort-key-row">
+              <span>第3キー</span>
+              <select id="sortKey3" class="form-control">
+                <option value="識別">識別（融資実行日 / 金消日）</option>
+                <option value="担当">担当</option>
+                <option value="時間">時間</option>
+                <option value="形態">形態</option>
+                <option value="依頼内容">依頼内容</option>
+                <option value="管轄">管轄</option>
+              </select>
+              <select id="sortOrder3" class="form-control" style="width: 140px;">
+                <option value="asc">昇順</option>
+                <option value="desc">降順</option>
+              </select>
+            </div>
+
+            <p class="text-muted" style="margin-top: 10px;">
+              ※ 既定値は 第1キー: 識別(降順) / 第2キー: 担当(昇順) / 第3キー: 時間(昇順) です。
+            </p>
+          </div>
+        </div>
+
+        <div class="save-bar">
+          <button class="btn btn-primary btn-save-config">設定を保存してExcelに反映</button>
+        </div>
+      </section>
+
+      <!-- 2. 選択肢マスター管理 -->
+      <section class="admin-card" id="pane-options">
+        <h3>選択肢マスター管理</h3>
+        <p class="section-desc">
+          使用者画面のドロップダウンに表示される定型選択肢を編集します（1行につき1項目）。<br>
+          ここになくても、使用者は入力画面で その他（自由入力...） を選んで直接記入することも可能です。
+        </p>
+
+        <div class="options-grid">
+          <div class="form-group">
+            <label>形態の選択肢（1行に1つ）</label>
+            <textarea id="settingFormTypes" class="form-control" rows="8"></textarea>
+          </div>
+          <div class="form-group">
+            <label>依頼内容の選択肢（1行に1つ）</label>
+            <textarea id="settingRequestContents" class="form-control" rows="8"></textarea>
+          </div>
+          <div class="form-group">
+            <label>当日申請の選択肢（1行に1つ）</label>
+            <textarea id="settingSameDayOptions" class="form-control" rows="5"></textarea>
+          </div>
+          <div class="form-group">
+            <label>ステータスの選択肢（1行に1つ）</label>
+            <textarea id="settingStatusOptions" class="form-control" rows="5"></textarea>
+          </div>
+        </div>
+
+        <div class="save-bar">
+          <button class="btn btn-primary btn-save-config">選択肢マスターを保存</button>
+        </div>
+      </section>
+
+      <!-- 3. 出力先 / 自動化設定 -->
+      <section class="admin-card" id="pane-output">
+        <h3>Excel出力先 / 自動化・バックアップ保持設定</h3>
+        <p class="section-desc">
+          ソート済みExcelファイルの出力先フォルダやファイル名、データ更新時の自動出力のオン/オフを設定します。
+        </p>
+
+        <div class="form-group" style="max-width: 600px;">
+          <label>Excel出力先フォルダパス</label>
+          <input type="text" id="settingExportDir" class="form-control" placeholder="例: ./exports または Z:\共有フォルダ">
+          <span class="text-muted">※ 社内共有フォルダのパスを指定すると、そこへ直接最新のExcelを出力します。</span>
+        </div>
+
+        <div class="form-group" style="max-width: 400px; margin-top: 16px;">
+          <label>出力Excelファイル名（.xlsx必須）</label>
+          <input type="text" id="settingExportFileName" class="form-control" placeholder="受託確認票.xlsx">
+        </div>
+
+        <div class="form-group" style="max-width: 300px; margin-top: 16px;">
+          <label>日次バックアップの保持日数</label>
+          <input type="number" id="settingRetentionDays" class="form-control" min="1" max="365" value="7">
+        </div>
+
+        <div class="form-group" style="margin-top: 16px;">
+          <label style="display: inline-flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer;">
+            <input type="checkbox" id="settingAutoExport" style="width: 16px; height: 16px;">
+            案件が登録または更新された際に自動でExcelファイルを出力する（推奨）
+          </label>
+        </div>
+
+        <div class="save-bar">
+          <button class="btn btn-primary btn-save-config">出力設定を保存</button>
+        </div>
+      </section>
+
+      <!-- 4. Excel一括取り込み -->
+      <section class="admin-card" id="pane-import">
+        <h3>既存Excelファイルの一括データ取り込み</h3>
+        <p class="section-desc">
+          既存の受託確認票Excelファイルから案件データを読み込みます。重複登録を防ぐため、追加モードか総入れ替えモードを選択できます。
+        </p>
+
+        <div class="form-group" style="max-width: 650px;">
+          <label>取り込み元Excelファイルのパス (.xlsx)</label>
+          <input type="text" id="importFilePath" class="form-control" value="Sample data\2026.10.20 受託確認票.xlsx">
+        </div>
+
+        <div class="form-group" style="max-width: 450px; margin-top: 14px;">
+          <label>取り込みモード</label>
+          <select id="importMode" class="form-control">
+            <option value="replace">現在の全データをクリアして入れ替える（重複防止 / 推奨）</option>
+            <option value="append">現在のデータにそのまま追加する</option>
+          </select>
+        </div>
+
+        <div style="margin-top: 20px;">
+          <button class="btn btn-primary" id="btnExecuteImport">Excelインポートを実行</button>
+          <div id="importResult" style="margin-top: 12px; font-weight: 600;"></div>
+        </div>
+      </section>
+
+      <!-- 5. バックアップ / 復元 -->
+      <section class="admin-card" id="pane-backup">
+        <h3>バックアップ一覧 / データ復元</h3>
+        <p class="section-desc">
+          毎日深夜に自動作成される日次バックアップと、手動バックアップの一覧です。万が一の際は指定した日付の時点へデータを復元できます。
+        </p>
+
+        <div style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;">
+          <span class="text-muted">保存先: ./backups/ フォルダ</span>
+          <button class="btn btn-secondary" id="btnCreateBackupNow">+ 今すぐ手動バックアップを作成</button>
+        </div>
+
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>バックアップ日付</th>
+              <th>更新日時</th>
+              <th>Excelファイル</th>
+              <th>データベースファイル</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="backupListTbody"></tbody>
+        </table>
+      </section>
+
+      <!-- 6. ゴミ箱（削除済み案件） -->
+      <section class="admin-card" id="pane-trash">
+        <h3>ゴミ箱（削除済み案件の復元 / 完全削除）</h3>
+        <p class="section-desc">
+          使用者画面から削除された案件はここに保管されます。誤って削除した場合は元の状態に復元できます。
+        </p>
+
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>削除日時</th>
+              <th>ステータス</th>
+              <th>お客様氏名</th>
+              <th>物件</th>
+              <th>担当</th>
+              <th>融資実行日</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="trashListTbody"></tbody>
+        </table>
+      </section>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="admin.js"></script>
+</body>
+</html>
