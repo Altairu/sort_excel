@@ -1,6 +1,6 @@
 use crate::backup::BackupManager;
 use crate::db::Db;
-use crate::excel_exporter::export_records_to_excel;
+use crate::excel_exporter::{build_sorted_views, export_records_to_excel};
 use crate::excel_importer::import_excel_file;
 use crate::models::{AppConfig, RecordInput};
 use axum::{
@@ -561,6 +561,26 @@ pub async fn purge_trash_record(
             StatusCode::OK,
             Json(ApiResponse::ok("案件を完全に削除しました")),
         ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::err(e.to_string())),
+        ),
+    }
+}
+
+/// ソート済みデータ一式取得（日付別シート / 融資実行日順 / 金消日順 / 統合データ）
+pub async fn get_sorted_views(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match state.db.get_config() {
+        Ok(cfg) => match state.db.list_records(None, None, None, false) {
+            Ok(records) => {
+                let views = build_sorted_views(&records, &cfg);
+                (StatusCode::OK, Json(ApiResponse::ok(views)))
+            }
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiResponse::err(e.to_string())),
+            ),
+        },
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ApiResponse::err(e.to_string())),

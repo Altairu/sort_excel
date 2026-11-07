@@ -2,9 +2,13 @@ let currentConfig = null;
 let currentRecords = [];
 let editingRecordId = null;
 
+// ソート済みビュー用データ保持
+let sortedViewsData = null;
+let activeViewTab = 'view-master';
+let selectedDateKey = null;
+
 const CUSTOM_OPTION_VALUE = '__CUSTOM__';
 
-// コンボボックス化対象のフィールド一覧
 const SELECT_WITH_CUSTOM_FIELDS = [
   'field_status',
   'field_staff',
@@ -13,7 +17,6 @@ const SELECT_WITH_CUSTOM_FIELDS = [
   'field_same_day_application',
 ];
 
-// トースト表示
 function showToast(message, type = 'info') {
   const toast = document.getElementById('toast');
   toast.textContent = message;
@@ -23,7 +26,6 @@ function showToast(message, type = 'info') {
   }, 3500);
 }
 
-// 接続元PCがサーバー（管理者PC）かどうかを確認し、管理者画面へのリンクを表示
 async function checkSessionInfo() {
   try {
     const res = await fetch('/api/session');
@@ -39,7 +41,6 @@ async function checkSessionInfo() {
   }
 }
 
-// 設定の読み込みとセレクトボックス初期化
 async function loadConfig() {
   try {
     const res = await fetch('/api/config');
@@ -56,7 +57,6 @@ async function loadConfig() {
 function initSelectOptions() {
   if (!currentConfig) return;
 
-  // 担当フィルター
   const staffFilter = document.getElementById('staffFilter');
   const currentStaffVal = staffFilter.value;
   staffFilter.innerHTML = '<option value="">全員</option>';
@@ -68,7 +68,6 @@ function initSelectOptions() {
   });
   staffFilter.value = currentStaffVal;
 
-  // ステータスフィルター
   const statusFilter = document.getElementById('statusFilter');
   const currentStatusVal = statusFilter.value;
   statusFilter.innerHTML = '<option value="">すべて</option>';
@@ -80,7 +79,6 @@ function initSelectOptions() {
   });
   statusFilter.value = currentStatusVal;
 
-  // フォーム用セレクトボックス（自由入力フォールバック付き）
   populateSelectWithCustom('field_staff', currentConfig.staff_order, true);
   populateSelectWithCustom('field_form_type', currentConfig.form_type_options, true);
   populateSelectWithCustom('field_request_content', currentConfig.request_content_options, true);
@@ -88,7 +86,6 @@ function initSelectOptions() {
   populateSelectWithCustom('field_status', currentConfig.status_options, false);
 }
 
-// セレクトボックスに選択肢と「その他（自由入力...）」を設定
 function populateSelectWithCustom(id, options, allowEmpty = true) {
   const el = document.getElementById(id);
   const customInput = document.getElementById(`${id}_custom`);
@@ -129,7 +126,6 @@ function populateSelectWithCustom(id, options, allowEmpty = true) {
   }
 }
 
-// セレクトボックスに値をセット（選択肢にない値の場合は自動的に自由入力欄へ展開）
 function setSelectOrCustomValue(id, value) {
   const el = document.getElementById(id);
   const customInput = document.getElementById(`${id}_custom`);
@@ -161,7 +157,6 @@ function setSelectOrCustomValue(id, value) {
   }
 }
 
-// セレクトボックスまたは自由入力欄から最終的な送信値を取得
 function getSelectOrCustomValue(id) {
   const el = document.getElementById(id);
   const customInput = document.getElementById(`${id}_custom`);
@@ -172,7 +167,6 @@ function getSelectOrCustomValue(id) {
   return el.value;
 }
 
-// 統計情報取得
 async function loadStats() {
   try {
     const res = await fetch('/api/stats');
@@ -189,7 +183,6 @@ async function loadStats() {
   }
 }
 
-// 案件一覧の取得と描画
 async function loadRecords() {
   const q = document.getElementById('searchInput').value;
   const staff = document.getElementById('staffFilter').value;
@@ -263,6 +256,302 @@ function renderTable(records) {
   });
 }
 
+// ==========================================================
+// ソート済みビュー（日付別スケジュール / 融資実行日順 / 金消日順 / 統合データ）
+// ==========================================================
+async function loadSortedViews() {
+  try {
+    const res = await fetch('/api/sorted-views');
+    const json = await res.json();
+    if (json.success && json.data) {
+      sortedViewsData = json.data;
+      renderActiveSortedView();
+    }
+  } catch (err) {
+    console.error('ソート済みデータの取得失敗:', err);
+  }
+}
+
+function formatDateWithWeekday(dateStr) {
+  if (!dateStr) return '-';
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return dateStr;
+  const d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+  if (isNaN(d.getTime())) return dateStr;
+  const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+  return `${dateStr} (${weekdays[d.getDay()]})`;
+}
+
+function getAllSortedDates() {
+  if (!sortedViewsData || !sortedViewsData.date_groups) return [];
+  return Object.keys(sortedViewsData.date_groups).sort();
+}
+
+function findNearestDateKey(dates) {
+  if (!dates || dates.length === 0) return null;
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const todayStr = `${yyyy}-${mm}-${dd}`;
+
+  // 今日以降で最も近い日付を探す。なければ最後の日付
+  for (const d of dates) {
+    if (d >= todayStr) return d;
+  }
+  return dates[dates.length - 1];
+}
+
+function renderActiveSortedView() {
+  if (!sortedViewsData) return;
+
+  if (activeViewTab === 'view-daily') {
+    renderDateSidebar();
+    renderDailyScheduleTable();
+  } else if (activeViewTab === 'view-loan') {
+    renderSubsheetTable('sorted_by_融資実行日（融資実行日順シート）', sortedViewsData.loan_rows || []);
+  } else if (activeViewTab === 'view-cancel') {
+    renderSubsheetTable('sorted_by_金消日・面談日（金消日 / 面談日順シート）', sortedViewsData.cancel_rows || []);
+  } else if (activeViewTab === 'view-combined') {
+    renderSubsheetTable('統合データシート（全日程統合）', sortedViewsData.combined_rows || []);
+  }
+}
+
+function renderDateSidebar() {
+  const ul = document.getElementById('dateListUl');
+  const filterText = (document.getElementById('dateSearchInput').value || '').trim();
+  ul.innerHTML = '';
+
+  const allDates = getAllSortedDates();
+  if (!selectedDateKey || !sortedViewsData.date_groups[selectedDateKey]) {
+    selectedDateKey = findNearestDateKey(allDates);
+  }
+
+  const filteredDates = allDates.filter(d => !filterText || d.includes(filterText));
+
+  if (filteredDates.length === 0) {
+    const li = document.createElement('li');
+    li.style.padding = '16px';
+    li.style.textAlign = 'center';
+    li.style.color = 'var(--text-muted)';
+    li.textContent = '該当する日付がありません';
+    ul.appendChild(li);
+    return;
+  }
+
+  filteredDates.forEach(dateKey => {
+    const group = sortedViewsData.date_groups[dateKey] || [];
+    const loanCount = group.filter(r => r.category === '融資実行日').length;
+    const cancelCount = group.filter(r => r.category !== '融資実行日').length;
+
+    const li = document.createElement('li');
+    li.className = `date-item ${dateKey === selectedDateKey ? 'active' : ''}`;
+    li.dataset.date = dateKey;
+
+    li.innerHTML = `
+      <span>${escapeHtml(formatDateWithWeekday(dateKey))}</span>
+      <div class="date-counts">
+        ${loanCount > 0 ? `<span class="cat-badge-loan" title="融資実行日">実 ${loanCount}</span>` : ''}
+        ${cancelCount > 0 ? `<span class="cat-badge-cancel" title="金消日・面談日">金 ${cancelCount}</span>` : ''}
+      </div>
+    `;
+
+    li.addEventListener('click', () => {
+      selectedDateKey = dateKey;
+      renderDateSidebar();
+      renderDailyScheduleTable();
+    });
+
+    ul.appendChild(li);
+  });
+}
+
+function renderDailyScheduleTable() {
+  const titleEl = document.getElementById('selectedDateTitle');
+  const summaryEl = document.getElementById('selectedDateSummary');
+  const tbody = document.getElementById('dailyScheduleTbody');
+  tbody.innerHTML = '';
+
+  if (!selectedDateKey || !sortedViewsData || !sortedViewsData.date_groups[selectedDateKey]) {
+    titleEl.textContent = '日付データがありません';
+    summaryEl.textContent = '';
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 12;
+    td.style.textAlign = 'center';
+    td.style.padding = '24px';
+    td.style.color = 'var(--text-muted)';
+    td.textContent = '表示するスケジュールがありません';
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    return;
+  }
+
+  const rows = sortedViewsData.date_groups[selectedDateKey] || [];
+  const loanCount = rows.filter(r => r.category === '融資実行日').length;
+  const cancelCount = rows.filter(r => r.category !== '融資実行日').length;
+
+  titleEl.textContent = `${formatDateWithWeekday(selectedDateKey)} のスケジュール`;
+  summaryEl.textContent = `合計 ${rows.length}件 （融資実行日: ${loanCount}件 / 金消日・面談日: ${cancelCount}件） - 行をクリックすると編集できます`;
+
+  rows.forEach(item => {
+    const tr = document.createElement('tr');
+    const isLoan = item.category === '融資実行日';
+    const catBadge = isLoan
+      ? `<span class="cat-badge-loan">融資実行日</span>`
+      : `<span class="cat-badge-cancel">金消日・面談日</span>`;
+
+    tr.innerHTML = `
+      <td>${catBadge}</td>
+      <td><b>${escapeHtml(item.staff || '-')}</b></td>
+      <td><b>${escapeHtml(item.time || '-')}</b></td>
+      <td><b>${escapeHtml(item.client_name)}</b></td>
+      <td>${escapeHtml(item.property_name)}</td>
+      <td>${escapeHtml(item.form_type)}</td>
+      <td>${escapeHtml(item.request_content)}</td>
+      <td>${escapeHtml(item.jurisdiction || '-')}</td>
+      <td>${escapeHtml(item.place || '-')}</td>
+      <td>${escapeHtml(item.confirmer || '-')}</td>
+      <td>${escapeHtml(item.application || '-')}</td>
+      <td>
+        <button class="btn btn-sm btn-outline">編集</button>
+      </td>
+    `;
+
+    tr.addEventListener('click', () => {
+      openEditPanel(item.record_id);
+    });
+
+    tbody.appendChild(tr);
+  });
+}
+
+function renderSubsheetTable(title, rows) {
+  document.getElementById('subsheetTitleLabel').textContent = title;
+  const q = (document.getElementById('subsheetSearchInput').value || '').trim().toLowerCase();
+  const tbody = document.getElementById('subsheetTbody');
+  tbody.innerHTML = '';
+
+  const filtered = rows.filter(r => {
+    if (!q) return true;
+    return (
+      (r.client_name && r.client_name.toLowerCase().includes(q)) ||
+      (r.property_name && r.property_name.toLowerCase().includes(q)) ||
+      (r.staff && r.staff.toLowerCase().includes(q)) ||
+      (r.date && r.date.toLowerCase().includes(q)) ||
+      (r.place && r.place.toLowerCase().includes(q)) ||
+      (r.jurisdiction && r.jurisdiction.toLowerCase().includes(q))
+    );
+  });
+
+  document.getElementById('subsheetCountLabel').textContent = `表示件数: ${filtered.length}件`;
+
+  if (filtered.length === 0) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 13;
+    td.style.textAlign = 'center';
+    td.style.padding = '24px';
+    td.style.color = 'var(--text-muted)';
+    td.textContent = '該当するデータがありません';
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    return;
+  }
+
+  filtered.forEach(item => {
+    const tr = document.createElement('tr');
+    const isLoan = item.category === '融資実行日';
+    const catBadge = isLoan
+      ? `<span class="cat-badge-loan">融資実行日</span>`
+      : `<span class="cat-badge-cancel">金消日・面談日</span>`;
+
+    tr.innerHTML = `
+      <td><b>${escapeHtml(formatDateWithWeekday(item.date))}</b></td>
+      <td>${catBadge}</td>
+      <td><b>${escapeHtml(item.staff || '-')}</b></td>
+      <td>${escapeHtml(item.time || '-')}</td>
+      <td><b>${escapeHtml(item.client_name)}</b></td>
+      <td>${escapeHtml(item.property_name)}</td>
+      <td>${escapeHtml(item.form_type)}</td>
+      <td>${escapeHtml(item.request_content)}</td>
+      <td>${escapeHtml(item.jurisdiction || '-')}</td>
+      <td>${escapeHtml(item.place || '-')}</td>
+      <td>${escapeHtml(item.confirmer || '-')}</td>
+      <td>${escapeHtml(item.application || '-')}</td>
+      <td>
+        <button class="btn btn-sm btn-outline">編集</button>
+      </td>
+    `;
+
+    tr.addEventListener('click', () => {
+      openEditPanel(item.record_id);
+    });
+
+    tbody.appendChild(tr);
+  });
+}
+
+// ビュータブの切り替えイベント
+document.querySelectorAll('.view-tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.view-tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+
+    activeViewTab = btn.dataset.view;
+    document.querySelectorAll('.view-pane').forEach(p => p.classList.remove('active'));
+
+    if (activeViewTab === 'view-master') {
+      document.getElementById('view-master').classList.add('active');
+    } else if (activeViewTab === 'view-daily') {
+      document.getElementById('view-daily').classList.add('active');
+      renderActiveSortedView();
+    } else {
+      document.getElementById('view-subsheet').classList.add('active');
+      renderActiveSortedView();
+    }
+  });
+});
+
+// 日付検索と前後移動ボタン
+document.getElementById('dateSearchInput').addEventListener('input', () => {
+  renderDateSidebar();
+});
+
+document.getElementById('btnJumpNearestDate').addEventListener('click', () => {
+  const allDates = getAllSortedDates();
+  selectedDateKey = findNearestDateKey(allDates);
+  document.getElementById('dateSearchInput').value = '';
+  renderDateSidebar();
+  renderDailyScheduleTable();
+  const activeEl = document.querySelector('#dateListUl .date-item.active');
+  if (activeEl) activeEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+});
+
+document.getElementById('btnPrevDate').addEventListener('click', () => {
+  const allDates = getAllSortedDates();
+  const idx = allDates.indexOf(selectedDateKey);
+  if (idx > 0) {
+    selectedDateKey = allDates[idx - 1];
+    renderDateSidebar();
+    renderDailyScheduleTable();
+  }
+});
+
+document.getElementById('btnNextDate').addEventListener('click', () => {
+  const allDates = getAllSortedDates();
+  const idx = allDates.indexOf(selectedDateKey);
+  if (idx >= 0 && idx < allDates.length - 1) {
+    selectedDateKey = allDates[idx + 1];
+    renderDateSidebar();
+    renderDailyScheduleTable();
+  }
+});
+
+document.getElementById('subsheetSearchInput').addEventListener('input', () => {
+  renderActiveSortedView();
+});
+
 function escapeHtml(str) {
   if (!str) return '';
   return String(str)
@@ -273,8 +562,8 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
-// 編集パネル開閉
-function openEditPanel(recordId = null) {
+// 編集パネル開閉（ソート済み画面から開いた場合も単一取得APIで確実に開けるよう対応）
+async function openEditPanel(recordId = null) {
   editingRecordId = recordId;
   const panel = document.getElementById('editPanel');
   const backdrop = document.getElementById('panelBackdrop');
@@ -294,7 +583,16 @@ function openEditPanel(recordId = null) {
   if (recordId) {
     title.textContent = `案件の編集 (ID: ${recordId})`;
     if (btnDelete) btnDelete.style.display = 'inline-flex';
-    const rec = currentRecords.find(r => r.id === recordId);
+    let rec = currentRecords.find(r => r.id === recordId);
+    if (!rec) {
+      try {
+        const res = await fetch(`/api/records/${recordId}`);
+        const json = await res.json();
+        if (json.success) rec = json.data;
+      } catch (e) {
+        console.error(e);
+      }
+    }
     if (rec) {
       document.getElementById('field_id').value = rec.id;
       document.getElementById('field_version').value = rec.version;
@@ -411,10 +709,9 @@ document.getElementById('recordForm').addEventListener('submit', async (e) => {
 
     const json = await res.json();
     if (json.success) {
-      showToast(id ? '案件を更新し、Excelを最新化しました' : '新規登録し、Excelを最新化しました', 'success');
+      showToast(id ? '案件を更新し、ソート結果とExcelを最新化しました' : '新規登録し、ソート結果とExcelを最新化しました', 'success');
       closeEditPanel();
-      loadRecords();
-      loadStats();
+      await Promise.all([loadRecords(), loadStats(), loadSortedViews()]);
     } else {
       showToast(json.error || '保存に失敗しました', 'error');
     }
@@ -437,8 +734,7 @@ document.getElementById('btnDeleteRecord').addEventListener('click', async () =>
     if (json.success) {
       showToast('案件を削除しました', 'success');
       closeEditPanel();
-      loadRecords();
-      loadStats();
+      await Promise.all([loadRecords(), loadStats(), loadSortedViews()]);
     } else {
       showToast(json.error || '削除に失敗しました', 'error');
     }
@@ -501,6 +797,5 @@ document.getElementById('panelBackdrop').addEventListener('click', closeEditPane
 window.addEventListener('DOMContentLoaded', async () => {
   await checkSessionInfo();
   await loadConfig();
-  await loadStats();
-  await loadRecords();
+  await Promise.all([loadStats(), loadRecords(), loadSortedViews()]);
 });

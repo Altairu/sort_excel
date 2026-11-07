@@ -140,6 +140,7 @@ async fn main() -> Result<()> {
         .route("/api/trash", get(api::list_trash))
         .route("/api/trash/{id}/restore", post(api::restore_trash_record))
         .route("/api/trash/{id}", delete(api::purge_trash_record))
+        .route("/api/sorted-views", get(api::get_sorted_views))
         .route("/api/stats", get(api::get_stats))
         .fallback(static_files::static_handler)
         .with_state(state);

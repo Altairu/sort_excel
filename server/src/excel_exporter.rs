@@ -1,27 +1,39 @@
 use crate::models::{AppConfig, Record};
 use anyhow::Result;
 use rust_xlsxwriter::{Format, FormatAlign, FormatBorder, Workbook};
+use serde::Serialize;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
 
-/// 日付別シート等で出力する統合行の内部構造
-#[derive(Debug, Clone)]
-struct ExportRow {
-    date: String,
-    form_type: String,
-    client_name: String,
-    property_name: String,
-    request_content: String,
-    staff: String,
-    jurisdiction: String,
-    time: String,
-    place: String,
-    confirmer: String,
-    application: String,
-    category: String, // 融資実行日 or 金消日・面談日
+/// 日付別シートやWeb画面のソート済みビューで共有する行データ構造
+#[derive(Debug, Clone, Serialize)]
+pub struct ExportRow {
+    pub record_id: i64,
+    pub status: String,
+    pub date: String,
+    pub form_type: String,
+    pub client_name: String,
+    pub property_name: String,
+    pub request_content: String,
+    pub staff: String,
+    pub jurisdiction: String,
+    pub time: String,
+    pub place: String,
+    pub confirmer: String,
+    pub application: String,
+    pub category: String, // 融資実行日 or 金消日・面談日
+}
+
+/// Web画面表示およびExcel出力で共通利用するソート済みデータ一式
+#[derive(Debug, Clone, Serialize)]
+pub struct SortedViewsData {
+    pub loan_rows: Vec<ExportRow>,
+    pub cancel_rows: Vec<ExportRow>,
+    pub combined_rows: Vec<ExportRow>,
+    pub date_groups: BTreeMap<String, Vec<ExportRow>>,
 }
 
 /// 時間文字列 (HH:MM や HH:MM:SS) を秒数に変換して比較可能にする
@@ -38,6 +50,117 @@ fn parse_time_to_seconds(t: &str) -> i64 {
     let m: i64 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
     let s: i64 = parts.get(2).and_then(|s| s.parse().ok()).unwrap_or(0);
     h * 3600 + m * 60 + s
+}
+
+/// レコード一覧と設定からソート済みデータ一式を構築
+pub fn build_sorted_views(records: &[Record], config: &AppConfig) -> SortedViewsData {
+    let mut loan_rows: Vec<ExportRow> = Vec::new();
+    let mut cancel_rows: Vec<ExportRow> = Vec::new();
+
+    for rec in records {
+        if !rec.loan_date.is_empty() {
+            loan_rows.push(ExportRow {
+                record_id: rec.id,
+                status: rec.status.clone(),
+                date: rec.loan_date.clone(),
+                form_type: rec.form_type.clone(),
+                client_name: rec.client_name.clone(),
+                property_name: rec.property_name.clone(),
+                request_content: rec.request_content.clone(),
+                staff: rec.staff.clone(),
+                jurisdiction: rec.jurisdiction.clone(),
+                time: rec.attendance_time.clone(),
+                place: rec.attendance_place.clone(),
+                confirmer: rec.attendee.clone(),
+                application: rec.same_day_application.clone(),
+                category: "融資実行日".to_string(),
+            });
+        }
+        if !rec.settlement_date.is_empty() {
+            cancel_rows.push(ExportRow {
+                record_id: rec.id,
+                status: rec.status.clone(),
+                date: rec.settlement_date.clone(),
+                form_type: rec.form_type.clone(),
+                client_name: rec.client_name.clone(),
+                property_name: rec.property_name.clone(),
+                request_content: rec.request_content.clone(),
+                staff: rec.staff.clone(),
+                jurisdiction: rec.jurisdiction.clone(),
+                time: rec.settlement_time.clone(),
+                place: rec.settlement_place.clone(),
+                confirmer: rec.confirmation.clone(),
+                application: rec.loan_date.clone(),
+                category: "金消日・面談日".to_string(),
+            });
+        }
+    }
+
+    // 担当順マップ作成
+    let staff_map: BTreeMap<String, usize> = config
+        .staff_order
+        .iter()
+        .enumerate()
+        .map(|(idx, name)| (name.clone(), idx))
+        .collect();
+
+    let compare_by_config = |a: &ExportRow, b: &ExportRow| -> std::cmp::Ordering {
+        for sk in &config.sort_keys {
+            let cmp = match sk.key.as_str() {
+                "識別" => a.category.cmp(&b.category),
+                "担当" => {
+                    let a_rank = staff_map.get(&a.staff).copied().unwrap_or(9999);
+                    let b_rank = staff_map.get(&b.staff).copied().unwrap_or(9999);
+                    a_rank.cmp(&b_rank)
+                }
+                "時間" => {
+                    let a_sec = parse_time_to_seconds(&a.time);
+                    let b_sec = parse_time_to_seconds(&b.time);
+                    a_sec.cmp(&b_sec)
+                }
+                "形態" => a.form_type.cmp(&b.form_type),
+                "依頼内容" => a.request_content.cmp(&b.request_content),
+                "管轄" => a.jurisdiction.cmp(&b.jurisdiction),
+                "お客様氏名" => a.client_name.cmp(&b.client_name),
+                _ => std::cmp::Ordering::Equal,
+            };
+
+            let final_cmp = if sk.ascending { cmp } else { cmp.reverse() };
+            if final_cmp != std::cmp::Ordering::Equal {
+                return final_cmp;
+            }
+        }
+        std::cmp::Ordering::Equal
+    };
+
+    loan_rows.sort_by(|a, b| a.date.cmp(&b.date).then_with(|| compare_by_config(a, b)));
+    cancel_rows.sort_by(|a, b| a.date.cmp(&b.date).then_with(|| compare_by_config(a, b)));
+
+    let mut combined_rows: Vec<ExportRow> = Vec::new();
+    combined_rows.extend(loan_rows.clone());
+    combined_rows.extend(cancel_rows.clone());
+    combined_rows.sort_by(|a, b| a.date.cmp(&b.date).then_with(|| compare_by_config(a, b)));
+
+    let mut date_groups: BTreeMap<String, Vec<ExportRow>> = BTreeMap::new();
+    for row in &combined_rows {
+        if !row.date.is_empty() {
+            date_groups
+                .entry(row.date.clone())
+                .or_default()
+                .push(row.clone());
+        }
+    }
+
+    for group in date_groups.values_mut() {
+        group.sort_by(compare_by_config);
+    }
+
+    SortedViewsData {
+        loan_rows,
+        cancel_rows,
+        combined_rows,
+        date_groups,
+    }
 }
 
 /// 書式設定済みの共通フォーマットを生成
@@ -162,52 +285,8 @@ pub fn export_records_to_excel(
         }
     }
 
-    // 2. 融資実行日データ、金消日データ、統合データの生成
-    let mut loan_rows: Vec<ExportRow> = Vec::new();
-    let mut cancel_rows: Vec<ExportRow> = Vec::new();
-
-    for rec in records {
-        if !rec.loan_date.is_empty() {
-            loan_rows.push(ExportRow {
-                date: rec.loan_date.clone(),
-                form_type: rec.form_type.clone(),
-                client_name: rec.client_name.clone(),
-                property_name: rec.property_name.clone(),
-                request_content: rec.request_content.clone(),
-                staff: rec.staff.clone(),
-                jurisdiction: rec.jurisdiction.clone(),
-                time: rec.attendance_time.clone(),
-                place: rec.attendance_place.clone(),
-                confirmer: rec.attendee.clone(),
-                application: rec.same_day_application.clone(),
-                category: "融資実行日".to_string(),
-            });
-        }
-        if !rec.settlement_date.is_empty() {
-            cancel_rows.push(ExportRow {
-                date: rec.settlement_date.clone(),
-                form_type: rec.form_type.clone(),
-                client_name: rec.client_name.clone(),
-                property_name: rec.property_name.clone(),
-                request_content: rec.request_content.clone(),
-                staff: rec.staff.clone(),
-                jurisdiction: rec.jurisdiction.clone(),
-                time: rec.settlement_time.clone(),
-                place: rec.settlement_place.clone(),
-                confirmer: rec.confirmation.clone(),
-                application: rec.loan_date.clone(),
-                category: "金消日・面談日".to_string(),
-            });
-        }
-    }
-
-    loan_rows.sort_by(|a, b| a.date.cmp(&b.date));
-    cancel_rows.sort_by(|a, b| a.date.cmp(&b.date));
-
-    let mut combined_rows: Vec<ExportRow> = Vec::new();
-    combined_rows.extend(loan_rows.clone());
-    combined_rows.extend(cancel_rows.clone());
-    combined_rows.sort_by(|a, b| a.date.cmp(&b.date));
+    // 2. ソート済みデータの構築
+    let views = build_sorted_views(records, config);
 
     let sub_headers = vec![
         "日付", "形態", "お客様氏名", "物件", "依頼内容", "担当", "管轄", "時間", "場所",
@@ -247,62 +326,12 @@ pub fn export_records_to_excel(
         Ok(())
     };
 
-    write_sub_sheet(&mut workbook, "sorted_by_融資実行日", &loan_rows)?;
-    write_sub_sheet(&mut workbook, "sorted_by_金消日・面談日", &cancel_rows)?;
-    write_sub_sheet(&mut workbook, "統合データ", &combined_rows)?;
+    write_sub_sheet(&mut workbook, "sorted_by_融資実行日", &views.loan_rows)?;
+    write_sub_sheet(&mut workbook, "sorted_by_金消日・面談日", &views.cancel_rows)?;
+    write_sub_sheet(&mut workbook, "統合データ", &views.combined_rows)?;
 
     // 3. 日付別シートの生成
-    // 日付ごとにグループ化
-    let mut date_groups: BTreeMap<String, Vec<ExportRow>> = BTreeMap::new();
-    for row in combined_rows {
-        if !row.date.is_empty() {
-            date_groups
-                .entry(row.date.clone())
-                .or_default()
-                .push(row);
-        }
-    }
-
-    // 担当順マップ作成
-    let staff_map: BTreeMap<String, usize> = config
-        .staff_order
-        .iter()
-        .enumerate()
-        .map(|(idx, name)| (name.clone(), idx))
-        .collect();
-
-    // ソートヘルパー（設定された sort_keys に従い動的に比較）
-    for (date_str, mut group) in date_groups {
-        group.sort_by(|a, b| {
-            for sk in &config.sort_keys {
-                let cmp = match sk.key.as_str() {
-                    "識別" => a.category.cmp(&b.category),
-                    "担当" => {
-                        let a_rank = staff_map.get(&a.staff).copied().unwrap_or(9999);
-                        let b_rank = staff_map.get(&b.staff).copied().unwrap_or(9999);
-                        a_rank.cmp(&b_rank)
-                    }
-                    "時間" => {
-                        let a_sec = parse_time_to_seconds(&a.time);
-                        let b_sec = parse_time_to_seconds(&b.time);
-                        a_sec.cmp(&b_sec)
-                    }
-                    "形態" => a.form_type.cmp(&b.form_type),
-                    "依頼内容" => a.request_content.cmp(&b.request_content),
-                    "管轄" => a.jurisdiction.cmp(&b.jurisdiction),
-                    "お客様氏名" => a.client_name.cmp(&b.client_name),
-                    _ => std::cmp::Ordering::Equal,
-                };
-
-                let final_cmp = if sk.ascending { cmp } else { cmp.reverse() };
-                if final_cmp != std::cmp::Ordering::Equal {
-                    return final_cmp;
-                }
-            }
-            std::cmp::Ordering::Equal
-        });
-
-        // シート名: YYYY-MM-DD
+    for (date_str, group) in views.date_groups {
         let safe_name = date_str.replace('/', "-");
         let sheet_name = if safe_name.len() > 31 {
             &safe_name[..31]
@@ -320,12 +349,10 @@ pub fn export_records_to_excel(
 
     workbook.save(&tmp_path)?;
 
-    // 既存ファイルがあれば _backup.xlsx にコピー
     if final_path.exists() {
         let _ = fs::copy(&final_path, &backup_path);
     }
 
-    // リネーム（ファイルが開かれている場合を想定して数回リトライ）
     let mut replaced = false;
     for _ in 0..5 {
         if fs::rename(&tmp_path, &final_path).is_ok() {
@@ -336,9 +363,7 @@ pub fn export_records_to_excel(
     }
 
     if !replaced {
-        // 直接上書きコピー試行
         if fs::copy(&tmp_path, &final_path).is_err() {
-            // 一時ファイルのみ残る旨をログ（ファイルロック中）
             tracing::warn!("ファイルが他のプロセスで開かれているため即時置換できませんでした。次回更新時に反映されます: {:?}", final_path);
         } else {
             let _ = fs::remove_file(&tmp_path);

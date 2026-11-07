@@ -28,60 +28,160 @@
 
   <!-- メインコンテンツ -->
   <main class="main-container">
-    <!-- 検索と絞り込みバー -->
-    <div class="filter-card">
-      <div class="search-box">
-        <input type="text" id="searchInput" placeholder="お客様氏名、物件名、仲介、備考で検索...">
-      </div>
-      <div class="filter-group">
-        <label>担当:</label>
-        <select id="staffFilter">
-          <option value="">全員</option>
-        </select>
-      </div>
-      <div class="filter-group">
-        <label>ステータス:</label>
-        <select id="statusFilter">
-          <option value="" selected>すべて</option>
-          <option value="進行中">進行中</option>
-          <option value="日程未定">日程未定</option>
-          <option value="リスケ">リスケ</option>
-          <option value="見積">見積</option>
-          <option value="完了">完了</option>
-          <option value="キャンセル">キャンセル</option>
-        </select>
-      </div>
-      <button class="btn btn-sm btn-outline" id="btnResetFilter">条件クリア</button>
+    <!-- ビュー切り替えタブバー -->
+    <div class="view-switcher">
+      <button class="view-tab-btn active" data-view="view-master">案件一覧（全件管理）</button>
+      <button class="view-tab-btn" data-view="view-daily">日付別スケジュール（ソート済み）</button>
+      <button class="view-tab-btn" data-view="view-loan">融資実行日順シート</button>
+      <button class="view-tab-btn" data-view="view-cancel">金消日 / 面談日順シート</button>
+      <button class="view-tab-btn" data-view="view-combined">統合データシート</button>
     </div>
 
-    <!-- 案件テーブル -->
-    <div class="table-card">
-      <div class="table-header-info">
-        <span id="recordCountLabel">表示件数: 0件</span>
-        <span class="text-muted">※ 行をクリックすると詳細の確認や編集ができます</span>
+    <!-- 1. 案件一覧（全件マスター）ビュー -->
+    <div class="view-pane active" id="view-master">
+      <!-- 検索と絞り込みバー -->
+      <div class="filter-card">
+        <div class="search-box">
+          <input type="text" id="searchInput" placeholder="お客様氏名、物件名、仲介、備考で検索...">
+        </div>
+        <div class="filter-group">
+          <label>担当:</label>
+          <select id="staffFilter">
+            <option value="">全員</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label>ステータス:</label>
+          <select id="statusFilter">
+            <option value="" selected>すべて</option>
+            <option value="進行中">進行中</option>
+            <option value="日程未定">日程未定</option>
+            <option value="リスケ">リスケ</option>
+            <option value="見積">見積</option>
+            <option value="完了">完了</option>
+            <option value="キャンセル">キャンセル</option>
+          </select>
+        </div>
+        <button class="btn btn-sm btn-outline" id="btnResetFilter">条件クリア</button>
       </div>
-      <div class="table-responsive">
-        <table class="data-table" id="recordsTable">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>ステータス</th>
-              <th>融資実行日</th>
-              <th>金消日 / 面談日</th>
-              <th>お客様氏名</th>
-              <th>物件</th>
-              <th>形態</th>
-              <th>依頼内容</th>
-              <th>担当</th>
-              <th>立会時間</th>
-              <th>当日申請</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody id="recordsTbody">
-            <!-- JSで動的レンダリング -->
-          </tbody>
-        </table>
+
+      <!-- 案件テーブル -->
+      <div class="table-card">
+        <div class="table-header-info">
+          <span id="recordCountLabel">表示件数: 0件</span>
+          <span class="text-muted">※ 行をクリックすると詳細の確認や編集ができます</span>
+        </div>
+        <div class="table-responsive">
+          <table class="data-table" id="recordsTable">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>ステータス</th>
+                <th>融資実行日</th>
+                <th>金消日 / 面談日</th>
+                <th>お客様氏名</th>
+                <th>物件</th>
+                <th>形態</th>
+                <th>依頼内容</th>
+                <th>担当</th>
+                <th>立会時間</th>
+                <th>当日申請</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="recordsTbody">
+              <!-- JSで動的レンダリング -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. 日付別スケジュール（ソート済みシート）ビュー -->
+    <div class="view-pane" id="view-daily">
+      <div class="schedule-layout">
+        <aside class="date-sidebar">
+          <div class="date-sidebar-header">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <b style="font-size:13px;">日付シート一覧</b>
+              <button class="btn btn-sm btn-outline" id="btnJumpNearestDate">今日 / 直近へ</button>
+            </div>
+            <input type="text" id="dateSearchInput" placeholder="日付で絞り込み (例: 2026-10)...">
+          </div>
+          <ul class="date-list" id="dateListUl"></ul>
+        </aside>
+
+        <section class="schedule-main">
+          <div class="schedule-banner">
+            <div>
+              <h3 id="selectedDateTitle">日付を選択してください</h3>
+              <span class="text-muted" id="selectedDateSummary">識別・担当順・時間順に自動ソートされたスケジュールです（行クリックで編集可能）</span>
+            </div>
+            <div class="date-nav-btns">
+              <button class="btn btn-sm btn-outline" id="btnPrevDate">← 前の日</button>
+              <button class="btn btn-sm btn-outline" id="btnNextDate">次の日 →</button>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>識別</th>
+                  <th>担当</th>
+                  <th>時間</th>
+                  <th>お客様氏名</th>
+                  <th>物件</th>
+                  <th>形態</th>
+                  <th>依頼内容</th>
+                  <th>管轄</th>
+                  <th>場所</th>
+                  <th>確認者</th>
+                  <th>申請 / 実行日</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="dailyScheduleTbody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- 3. 融資実行日順シート / 金消日順シート / 統合データシート 共通ビュー -->
+    <div class="view-pane" id="view-subsheet">
+      <div class="filter-card">
+        <div class="search-box">
+          <input type="text" id="subsheetSearchInput" placeholder="このシート内をお客様氏名、物件、担当、日付、場所で絞り込み...">
+        </div>
+        <span id="subsheetCountLabel" style="font-weight:600; font-size:13px;">0件</span>
+      </div>
+      <div class="table-card">
+        <div class="table-header-info">
+          <span id="subsheetTitleLabel">ソート済みシート</span>
+          <span class="text-muted">※ Excelの該当シートと同じ並び順です。行をクリックすると直接編集できます</span>
+        </div>
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>日付</th>
+                <th>識別</th>
+                <th>担当</th>
+                <th>時間</th>
+                <th>お客様氏名</th>
+                <th>物件</th>
+                <th>形態</th>
+                <th>依頼内容</th>
+                <th>管轄</th>
+                <th>場所</th>
+                <th>確認者</th>
+                <th>申請 / 実行日</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="subsheetTbody"></tbody>
+          </table>
+        </div>
       </div>
     </div>
   </main>
