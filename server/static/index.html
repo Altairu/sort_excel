@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>受託確認票 業務管理システム</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- ヘッダー -->
+  <header class="header">
+    <div class="header-left">
+      <div class="logo">受託確認票 業務管理</div>
+      <div class="stats-bar" id="statsBar">
+        <span class="stat-badge">全案件: <b id="statTotal">-</b></span>
+        <span class="stat-badge badge-active">進行中: <b id="statInProgress">-</b></span>
+        <span class="stat-badge badge-pending">日程未定/リスケ: <b id="statPending">-</b></span>
+        <span class="stat-badge badge-done">完了: <b id="statCompleted">-</b></span>
+      </div>
+    </div>
+    <div class="header-right">
+      <button class="btn btn-primary" id="btnNewRecord">+ 新規案件を登録</button>
+      <button class="btn btn-secondary" id="btnExport">Excelを今すぐ出力</button>
+      <button class="btn btn-outline" id="btnHelp">使い方ガイド</button>
+      <button class="btn btn-outline" id="btnSettings">管理設定</button>
+    </div>
+  </header>
+
+  <!-- メインコンテンツ -->
+  <main class="main-container">
+    <!-- 検索と絞り込みバー -->
+    <div class="filter-card">
+      <div class="search-box">
+        <input type="text" id="searchInput" placeholder="お客様氏名、物件名、仲介、備考で検索...">
+      </div>
+      <div class="filter-group">
+        <label>担当:</label>
+        <select id="staffFilter">
+          <option value="">全員</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>ステータス:</label>
+        <select id="statusFilter">
+          <option value="">すべて</option>
+          <option value="進行中" selected>進行中</option>
+          <option value="日程未定">日程未定</option>
+          <option value="リスケ">リスケ</option>
+          <option value="見積">見積</option>
+          <option value="完了">完了</option>
+          <option value="キャンセル">キャンセル</option>
+        </select>
+      </div>
+      <button class="btn btn-sm btn-outline" id="btnResetFilter">条件クリア</button>
+    </div>
+
+    <!-- 案件テーブル -->
+    <div class="table-card">
+      <div class="table-header-info">
+        <span id="recordCountLabel">表示件数: 0件</span>
+        <span class="text-muted">※ 行をクリックすると詳細の確認・編集ができます</span>
+      </div>
+      <div class="table-responsive">
+        <table class="data-table" id="recordsTable">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>ステータス</th>
+              <th>融資実行日</th>
+              <th>金消日・面談日</th>
+              <th>お客様氏名</th>
+              <th>物件</th>
+              <th>形態</th>
+              <th>依頼内容</th>
+              <th>担当</th>
+              <th>立会時間</th>
+              <th>当日申請</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="recordsTbody">
+            <!-- JSで動的レンダリング -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <!-- 編集・詳細スライドインパネル -->
+  <div class="slide-panel-backdrop" id="panelBackdrop"></div>
+  <aside class="slide-panel" id="editPanel">
+    <div class="panel-header">
+      <h3 id="panelTitle">案件の編集</h3>
+      <button class="close-btn" id="btnClosePanel">&times;</button>
+    </div>
+    <form id="recordForm" class="panel-body">
+      <input type="hidden" id="field_id">
+      <input type="hidden" id="field_version">
+
+      <!-- 基本情報 -->
+      <div class="form-section">
+        <h4 class="section-title">基本情報</h4>
+        <div class="form-row">
+          <div class="form-group col-6">
+            <label>ステータス</label>
+            <select id="field_status" class="form-control"></select>
+          </div>
+          <div class="form-group col-6">
+            <label>担当</label>
+            <select id="field_staff" class="form-control"></select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group col-6">
+            <label>受諾日</label>
+            <input type="date" id="field_acceptance_date" class="form-control">
+          </div>
+          <div class="form-group col-6">
+            <label>形態</label>
+            <select id="field_form_type" class="form-control"></select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>お客様氏名 <span class="required">*</span></label>
+          <input type="text" id="field_client_name" class="form-control" required placeholder="例: 山田太郎 / 鈴木花子">
+        </div>
+
+        <div class="form-group">
+          <label>物件</label>
+          <input type="text" id="field_property_name" class="form-control" placeholder="例: ○○マンション 302号室">
+        </div>
+
+        <div class="form-row">
+          <div class="form-group col-6">
+            <label>依頼内容</label>
+            <select id="field_request_content" class="form-control"></select>
+          </div>
+          <div class="form-group col-6">
+            <label>管轄</label>
+            <input type="text" id="field_jurisdiction" class="form-control" placeholder="例: 東神戸, 天王寺">
+          </div>
+        </div>
+      </div>
+
+      <!-- 日程・立会情報 -->
+      <div class="form-section">
+        <h4 class="section-title">日程・立会</h4>
+        <div class="form-row">
+          <div class="form-group col-6">
+            <label>融資実行日</label>
+            <input type="date" id="field_loan_date" class="form-control">
+          </div>
+          <div class="form-group col-6">
+            <label>実行日メモ / 補足</label>
+            <input type="text" id="field_loan_date_note" class="form-control" placeholder="例: 来年3月予定, リスケ">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group col-6">
+            <label>立会時間</label>
+            <input type="text" id="field_attendance_time" class="form-control" placeholder="例: 10:00">
+          </div>
+          <div class="form-group col-6">
+            <label>立会者</label>
+            <input type="text" id="field_attendee" class="form-control" placeholder="例: 北條">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>立会場所</label>
+          <input type="text" id="field_attendance_place" class="form-control" placeholder="例: 京都銀行○○支店">
+        </div>
+
+        <div class="form-row">
+          <div class="form-group col-6">
+            <label>当日申請</label>
+            <select id="field_same_day_application" class="form-control"></select>
+          </div>
+          <div class="form-group col-6">
+            <label>実行時間</label>
+            <input type="text" id="field_execution_time" class="form-control" placeholder="例: 着金連絡後, 09:30">
+          </div>
+        </div>
+      </div>
+
+      <!-- 金消・面談情報 -->
+      <div class="form-section">
+        <h4 class="section-title">金消・面談</h4>
+        <div class="form-row">
+          <div class="form-group col-6">
+            <label>金消日・面談日</label>
+            <input type="date" id="field_settlement_date" class="form-control">
+          </div>
+          <div class="form-group col-6">
+            <label>金消時間</label>
+            <input type="text" id="field_settlement_time" class="form-control" placeholder="例: 14:00">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>金消日メモ / 予備日</label>
+          <input type="text" id="field_settlement_date_note" class="form-control" placeholder="例: 予備日 9/24">
+        </div>
+
+        <div class="form-group">
+          <label>金消場所・面談場所</label>
+          <textarea id="field_settlement_place" class="form-control" rows="2" placeholder="売主・買主ごとの場所など"></textarea>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group col-6">
+            <label>意思確認</label>
+            <input type="text" id="field_confirmation" class="form-control">
+          </div>
+          <div class="form-group col-6">
+            <label>申請書類チェック</label>
+            <input type="text" id="field_doc_check" class="form-control">
+          </div>
+        </div>
+      </div>
+
+      <!-- 関係者・その他 -->
+      <div class="form-section">
+        <h4 class="section-title">関係者・備考</h4>
+        <div class="form-row">
+          <div class="form-group col-6">
+            <label>仲介</label>
+            <input type="text" id="field_broker" class="form-control">
+          </div>
+          <div class="form-group col-6">
+            <label>ＡＲＵＨＩ代理店</label>
+            <input type="text" id="field_agency" class="form-control">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>先方書士</label>
+          <textarea id="field_opponent_scrivener" class="form-control" rows="2"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label>備考</label>
+          <textarea id="field_remarks" class="form-control" rows="2"></textarea>
+        </div>
+      </div>
+
+      <div class="panel-footer">
+        <button type="button" class="btn btn-outline" id="btnCancelEdit">閉じる</button>
+        <button type="submit" class="btn btn-primary" id="btnSaveRecord">保存してExcel更新</button>
+      </div>
+    </form>
+  </aside>
+
+  <!-- 使い方ガイドモーダル -->
+  <div class="modal" id="helpModal">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <h3>使い方ガイド / 操作マニュアル</h3>
+        <button class="close-btn" id="btnCloseHelp">&times;</button>
+      </div>
+      <div class="modal-body help-body">
+        <h4>1. 日常の使い方の流れ</h4>
+        <p>受託した案件の登録や、日時の決まった案件の更新はすべてこの画面から行います。<br>
+        画面で保存した内容は、社内共有フォルダの「受託確認票.xlsx」へ即座に自動反映されます。</p>
+
+        <h4>2. 案件の更新手順（日時決定・担当変更）</h4>
+        <ul>
+          <li>上部の検索窓にお客様氏名や物件名を入力して案件を探します。</li>
+          <li>一覧の行をクリックすると、右側に編集パネルが開きます。</li>
+          <li>融資実行日や金消日、担当者などを選択・入力し、「保存してExcel更新」を押します。</li>
+        </ul>
+
+        <h4>3. 入力時のルールとポイント</h4>
+        <ul>
+          <li><b>日程の入力:</b> 確定した日付はカレンダーから選んでください。まだ日程が決まっていない場合はステータスを「日程未定」または「リスケ」にし、日付メモ欄に予定時期を記入してください。</li>
+          <li><b>複数日程や売主/買主の別:</b> 金消場所や先方書士欄などは複数行（改行）で入力可能です。</li>
+          <li><b>表記ゆれ防止:</b> 形態や依頼内容、担当はドロップダウンから選択してください。</li>
+        </ul>
+
+        <h4>4. 共有Excel（受託確認票.xlsx）の閲覧について</h4>
+        <p>共有フォルダにある「受託確認票.xlsx」は、誰でも直接開いて確認できます。<br>
+        ただし、直接Excel上でセルを書き換えて保存することは避け、更新はこのWeb画面から行ってください。</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" id="btnOkHelp">確認しました</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 管理設定モーダル -->
+  <div class="modal" id="settingsModal">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <h3>管理設定</h3>
+        <button class="close-btn" id="btnCloseSettings">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="settings-tabs">
+          <button class="tab-btn active" data-tab="tab-staff">担当順の設定</button>
+          <button class="tab-btn" data-tab="tab-options">選択肢マスター</button>
+          <button class="tab-btn" data-tab="tab-backup">バックアップ履歴</button>
+          <button class="tab-btn" data-tab="tab-import">Excelデータ取り込み</button>
+        </div>
+
+        <!-- 担当順タブ -->
+        <div class="tab-content active" id="tab-staff">
+          <p class="text-muted">日付別シートで優先して上に並べる担当者の順序です。上下ボタンで並べ替えられます。</p>
+          <ul class="reorder-list" id="staffOrderList"></ul>
+          <div class="input-with-btn">
+            <input type="text" id="newStaffInput" placeholder="新しい担当者名...">
+            <button class="btn btn-sm btn-secondary" id="btnAddStaff">担当者追加</button>
+          </div>
+        </div>
+
+        <!-- 選択肢マスタデータブ -->
+        <div class="tab-content" id="tab-options">
+          <h4>形態の選択肢</h4>
+          <textarea id="settingFormTypes" class="form-control" rows="4"></textarea>
+          <h4 style="margin-top:15px;">依頼内容の選択肢</h4>
+          <textarea id="settingRequestContents" class="form-control" rows="4"></textarea>
+        </div>
+
+        <!-- バックアップタブ -->
+        <div class="tab-content" id="tab-backup">
+          <p class="text-muted">直近7日分の日次バックアップ一覧です（毎日深夜に自動作成されます）。</p>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>日付</th>
+                <th>作成日時</th>
+                <th>Excelファイル</th>
+                <th>データベース</th>
+              </tr>
+            </thead>
+            <tbody id="backupListTbody"></tbody>
+          </table>
+        </div>
+
+        <!-- インポートタブ -->
+        <div class="tab-content" id="tab-import">
+          <p class="text-muted">運用中の受託確認票Excelから過去データを一括で取り込みます。</p>
+          <div class="form-group">
+            <label>ファイルパス:</label>
+            <input type="text" id="importFilePath" class="form-control" value="Sample data\2026.10.20 受託確認票.xlsx">
+          </div>
+          <button class="btn btn-primary" id="btnExecuteImport">一括インポートを実行</button>
+          <div id="importResult" style="margin-top:10px;"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" id="btnCancelSettings">閉じる</button>
+        <button class="btn btn-primary" id="btnSaveSettings">設定を保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
