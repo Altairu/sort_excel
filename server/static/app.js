@@ -905,6 +905,42 @@ document.getElementById('btnOkHelp').addEventListener('click', () => {
   document.getElementById('helpModal').classList.remove('active');
 });
 
+// 全画面表示トグル
+const btnFullscreen = document.getElementById('btnFullscreen');
+function updateFullscreenUI() {
+  const isFs = !!document.fullscreenElement || document.body.classList.contains('wide-fullscreen');
+  if (btnFullscreen) {
+    btnFullscreen.textContent = isFs ? '全画面を解除' : '全画面表示';
+  }
+}
+
+if (btnFullscreen) {
+  btnFullscreen.addEventListener('click', async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+        document.body.classList.add('wide-fullscreen');
+      } else {
+        await document.exitFullscreen();
+        document.body.classList.remove('wide-fullscreen');
+      }
+    } catch (e) {
+      // フルスクリーンAPI非対応環境向けフォールバック（余白最小化ワイドモード）
+      document.body.classList.toggle('wide-fullscreen');
+    }
+    updateFullscreenUI();
+  });
+}
+
+document.addEventListener('fullscreenchange', () => {
+  if (!document.fullscreenElement) {
+    document.body.classList.remove('wide-fullscreen');
+  } else {
+    document.body.classList.add('wide-fullscreen');
+  }
+  updateFullscreenUI();
+});
+
 // 検索とフィルターのイベント
 let debounceTimer;
 document.getElementById('searchInput').addEventListener('input', () => {

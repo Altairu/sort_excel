@@ -256,6 +256,34 @@ document.querySelectorAll('.btn-save-config').forEach(btn => {
   btn.addEventListener('click', saveConfig);
 });
 
+// 全画面表示トグル
+const btnAdminFullscreen = document.getElementById('btnAdminFullscreen');
+if (btnAdminFullscreen) {
+  btnAdminFullscreen.addEventListener('click', async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+        document.body.classList.add('wide-fullscreen');
+      } else {
+        await document.exitFullscreen();
+        document.body.classList.remove('wide-fullscreen');
+      }
+    } catch (e) {
+      document.body.classList.toggle('wide-fullscreen');
+    }
+    btnAdminFullscreen.textContent =
+      (document.fullscreenElement || document.body.classList.contains('wide-fullscreen'))
+        ? '全画面を解除'
+        : '全画面表示';
+  });
+}
+
+document.addEventListener('fullscreenchange', () => {
+  if (btnAdminFullscreen) {
+    btnAdminFullscreen.textContent = document.fullscreenElement ? '全画面を解除' : '全画面表示';
+  }
+});
+
 // 手動Excel出力
 document.getElementById('btnManualExport').addEventListener('click', async () => {
   showToast('Excelを再出力しています...', 'info');

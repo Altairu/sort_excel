@@ -137,8 +137,8 @@ body {
 
 /* コンテナ */
 .main-container {
-  padding: 20px 24px;
-  max-width: 1600px;
+  padding: 16px 20px;
+  max-width: 100%;
   margin: 0 auto;
 }
 
@@ -687,4 +687,31 @@ textarea.form-control {
 .date-nav-btns {
   display: flex;
   gap: 6px;
+}
+
+/* 全画面 / ワイド最大化モード時のスタイル調整 */
+body.wide-fullscreen .main-container {
+  padding: 8px 12px;
+}
+
+body.wide-fullscreen .header {
+  padding: 8px 16px;
+}
+
+body.wide-fullscreen .view-switcher {
+  margin-bottom: 8px;
+  padding: 4px;
+}
+
+body.wide-fullscreen .filter-card {
+  margin-bottom: 8px;
+  padding: 8px 12px;
+}
+
+body.wide-fullscreen .table-responsive {
+  max-height: calc(100vh - 165px);
+}
+
+body.wide-fullscreen .date-list {
+  max-height: calc(100vh - 180px);
 }
