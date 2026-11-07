@@ -130,7 +130,8 @@ function populateConfigFields() {
   document.getElementById('settingRetentionDays').value = adminConfig.backup_retention_days || 7;
   document.getElementById('settingAutoExport').checked = !!adminConfig.auto_export_on_change;
 
-  // 5. 遮断IPリストの描画
+  // 5. 管理者許可IPと遮断IPリストの描画
+  renderAdminIps();
   renderBlockedIps();
 }
 
@@ -513,6 +514,88 @@ function isLoopbackIp(rawIp) {
   return !rawIp || rawIp === '127.0.0.1' || rawIp === '::1' || rawIp.toLowerCase() === 'localhost';
 }
 
+function renderAdminIps() {
+  const container = document.getElementById('adminIpBadges');
+  if (!container || !adminConfig) return;
+  const list = adminConfig.admin_ips || [];
+  container.innerHTML = '';
+
+  if (list.length === 0) {
+    container.innerHTML = '<span style="font-size: 12px; color: #64748b;">追加で許可された外部IPはありません（サーバーPCのみ）</span>';
+    return;
+  }
+
+  list.forEach(ip => {
+    const span = document.createElement('span');
+    span.className = 'stat-badge';
+    span.style.backgroundColor = '#dcfce7';
+    span.style.color = '#166534';
+    span.style.border = '1px solid #86efac';
+    span.style.padding = '4px 10px';
+    span.style.fontFamily = 'monospace';
+    span.innerHTML = `
+      <b>${escapeHtml(ip)}</b>
+      <button type="button" class="btn btn-sm btn-outline revoke-admin-ip-btn" data-ip="${escapeHtml(ip)}" style="padding: 1px 6px; font-size: 11px; margin-left: 6px;">権限解除</button>
+    `;
+    container.appendChild(span);
+  });
+
+  container.querySelectorAll('.revoke-admin-ip-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      toggleAdminIpStatus(btn.dataset.ip, false);
+    });
+  });
+}
+
+async function toggleAdminIpStatus(ipStr, shouldGrant) {
+  const rawIp = extractRawIp(ipStr);
+  if (!rawIp) return;
+
+  if (shouldGrant) {
+    if (!confirm(`IPアドレス「${rawIp}」に管理者権限を付与しますか？\n（そのPCから設定変更やログ閲覧ができるようになります）`)) {
+      return;
+    }
+  } else {
+    if (!confirm(`IPアドレス「${rawIp}」の管理者権限を解除しますか？`)) {
+      return;
+    }
+  }
+
+  try {
+    const res = await fetch('/api/admin-ips', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ip: rawIp, grant: shouldGrant }),
+    });
+    const json = await res.json();
+    if (json.success && json.data) {
+      adminConfig = json.data;
+      renderAdminIps();
+      renderBlockedIps();
+      await loadAuditLogs();
+      showToast(
+        shouldGrant ? `IP: ${rawIp} に管理者権限を付与しました` : `IP: ${rawIp} の管理者権限を解除しました`,
+        'success'
+      );
+    } else {
+      showToast(json.error || '権限の更新に失敗しました', 'error');
+    }
+  } catch (err) {
+    showToast('通信エラーが発生しました', 'error');
+  }
+}
+
+document.getElementById('btnManualGrantAdminIp').addEventListener('click', () => {
+  const input = document.getElementById('manualAdminIpInput');
+  const val = (input.value || '').trim();
+  if (!val) {
+    showToast('管理者にするIPアドレスを入力してください', 'error');
+    return;
+  }
+  toggleAdminIpStatus(val, true);
+  input.value = '';
+});
+
 function renderBlockedIps() {
   const container = document.getElementById('blockedIpBadges');
   if (!container || !adminConfig) return;
@@ -628,19 +711,25 @@ async function loadAuditLogs() {
     const json = await res.json();
     if (json.success && json.data && json.data.length > 0) {
       const blockedList = (adminConfig && adminConfig.blocked_ips) ? adminConfig.blocked_ips : [];
+      const adminList = (adminConfig && adminConfig.admin_ips) ? adminConfig.admin_ips : [];
 
       json.data.forEach(log => {
         const rawIp = extractRawIp(log.client_ip);
         const isLocal = isLoopbackIp(rawIp);
         const isBlocked = blockedList.includes(rawIp);
+        const isAdminIp = adminList.includes(rawIp);
 
         let ipActionBtn = '';
         if (!isLocal) {
-          if (isBlocked) {
-            ipActionBtn = `<button type="button" class="btn btn-sm btn-outline log-ip-toggle-btn" data-ip="${escapeHtml(rawIp)}" data-block="false" style="margin-left:8px; color:var(--secondary); border-color:var(--secondary); padding:2px 6px; font-size:11px;">遮断中 (解除)</button>`;
-          } else {
-            ipActionBtn = `<button type="button" class="btn btn-sm btn-outline log-ip-toggle-btn" data-ip="${escapeHtml(rawIp)}" data-block="true" style="margin-left:8px; color:var(--danger); border-color:var(--danger); padding:2px 6px; font-size:11px;">出禁にする</button>`;
-          }
+          const adminBtn = isAdminIp
+            ? `<button type="button" class="btn btn-sm btn-outline log-admin-toggle-btn" data-ip="${escapeHtml(rawIp)}" data-grant="false" style="margin-left:6px; color:#166534; border-color:#86efac; background:#dcfce7; padding:2px 6px; font-size:11px;">管理者 (解除)</button>`
+            : `<button type="button" class="btn btn-sm btn-outline log-admin-toggle-btn" data-ip="${escapeHtml(rawIp)}" data-grant="true" style="margin-left:6px; color:var(--primary); border-color:var(--primary); padding:2px 6px; font-size:11px;">管理者にする</button>`;
+
+          const blockBtn = isBlocked
+            ? `<button type="button" class="btn btn-sm btn-outline log-ip-toggle-btn" data-ip="${escapeHtml(rawIp)}" data-block="false" style="margin-left:4px; color:var(--secondary); border-color:var(--secondary); padding:2px 6px; font-size:11px;">遮断中 (解除)</button>`
+            : `<button type="button" class="btn btn-sm btn-outline log-ip-toggle-btn" data-ip="${escapeHtml(rawIp)}" data-block="true" style="margin-left:4px; color:var(--danger); border-color:var(--danger); padding:2px 6px; font-size:11px;">出禁にする</button>`;
+
+          ipActionBtn = adminBtn + blockBtn;
         }
 
         const tr = document.createElement('tr');
@@ -656,6 +745,14 @@ async function loadAuditLogs() {
           <td style="white-space: normal; max-width: 480px; color: #334155;">${escapeHtml(log.details)}</td>
         `;
         tbody.appendChild(tr);
+      });
+
+      tbody.querySelectorAll('.log-admin-toggle-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const ip = btn.dataset.ip;
+          const shouldGrant = btn.dataset.grant === 'true';
+          toggleAdminIpStatus(ip, shouldGrant);
+        });
       });
 
       tbody.querySelectorAll('.log-ip-toggle-btn').forEach(btn => {

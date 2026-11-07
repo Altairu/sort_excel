@@ -116,6 +116,8 @@ pub struct AppConfig {
     pub auto_export_on_change: bool,
     #[serde(default)]
     pub blocked_ips: Vec<String>,
+    #[serde(default)]
+    pub admin_ips: Vec<String>,
 }
 
 impl Default for AppConfig {
@@ -188,6 +190,7 @@ impl Default for AppConfig {
             backup_retention_days: 7,
             auto_export_on_change: true,
             blocked_ips: Vec::new(),
+            admin_ips: Vec::new(),
         }
     }
 }

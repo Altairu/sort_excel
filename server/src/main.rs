@@ -144,6 +144,7 @@ async fn main() -> Result<()> {
         .route("/api/trash/{id}", delete(api::purge_trash_record))
         .route("/api/audit-logs", get(api::list_audit_logs))
         .route("/api/ip-block", post(api::toggle_ip_block))
+        .route("/api/admin-ips", post(api::toggle_admin_ip))
         .route("/api/sorted-views", get(api::get_sorted_views))
         .route("/api/stats", get(api::get_stats))
         .fallback(static_files::static_handler)

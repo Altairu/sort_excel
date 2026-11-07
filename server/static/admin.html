@@ -151,7 +151,7 @@
   <header class="header">
     <div class="header-left">
       <div class="logo">受託確認票 管理者コンソール</div>
-      <span class="admin-badge">サーバーPC専用 (localhost)</span>
+      <span class="admin-badge">管理者専用</span>
       <div class="stats-bar">
         <span class="stat-badge">有効案件: <b id="adminStatTotal">-</b></span>
         <span class="stat-badge">ゴミ箱: <b id="adminStatTrash">-</b></span>
@@ -189,7 +189,7 @@
         <span>ゴミ箱（削除済み）</span>
         <span class="stat-badge" id="navTrashCount">0</span>
       </button>
-      <button class="admin-nav-btn" data-target="pane-logs">アクセス / 操作履歴・IP制限</button>
+      <button class="admin-nav-btn" data-target="pane-logs">アクセス履歴 / 権限・IP制限</button>
     </nav>
 
     <!-- メインペイン -->
@@ -417,11 +417,27 @@
 
       <!-- 7. アクセス / 操作履歴ログ -->
       <section class="admin-card" id="pane-logs">
-        <h3>アクセス / 操作履歴ログ・IPアクセス制限（出禁設定）</h3>
+        <h3>アクセス / 操作履歴ログ・管理者権限付与・IP遮断（出禁）</h3>
         <p class="section-desc">
-          誰が・いつ・どのPC（IPアドレス）から画面を開き、どの案件を登録 / 更新 / 削除したかの履歴を確認できます。<br>
-          また、特定のIPアドレスからのアクセスをワンクリックで遮断（出禁）したり解除したりできます。
+          誰が・いつ・どのPC（IPアドレス）からアクセスし、どの案件を操作したかの履歴を確認できます。<br>
+          また、特定のIPアドレスに管理者権限を付与したり、アクセス遮断（出禁）に設定したりできます。
         </p>
+
+        <!-- 管理者権限許可IPアドレス管理ボックス -->
+        <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 14px 18px; margin-bottom: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+            <div>
+              <b style="color: #166534; font-size: 13px;">管理者権限を付与しているIPアドレス一覧（サーバーPC / localhost は常時許可）</b>
+              <div id="adminIpBadges" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px;">
+                <!-- JSで管理者許可IPバッジを表示 -->
+              </div>
+            </div>
+            <div class="input-with-btn" style="min-width: 300px;">
+              <input type="text" id="manualAdminIpInput" placeholder="管理者にするIPを入力 (例: 192.168.1.25)" style="background: white;">
+              <button type="button" class="btn btn-sm btn-secondary" id="btnManualGrantAdminIp" style="white-space: nowrap;">管理者権限を付与</button>
+            </div>
+          </div>
+        </div>
 
         <!-- 遮断中（出禁）IPアドレス管理ボックス -->
         <div style="background-color: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; padding: 14px 18px; margin-bottom: 18px;">

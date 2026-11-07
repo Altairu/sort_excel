@@ -58,6 +58,20 @@ pub fn is_local_request(addr: &SocketAddr) -> bool {
     addr.ip().is_loopback()
 }
 
+/// 接続元が管理者権限を持つか判定（サーバーPC自身、または admin_ips に登録されたIP）
+pub fn is_admin_request(addr: &SocketAddr, state: &AppState) -> bool {
+    if addr.ip().is_loopback() {
+        return true;
+    }
+    let ip_str = addr.ip().to_string();
+    if let Ok(cfg) = state.db.get_config() {
+        if cfg.admin_ips.contains(&ip_str) {
+            return true;
+        }
+    }
+    false
+}
+
 /// 接続元IPをわかりやすい文字列に整形
 fn format_client_ip(addr: &SocketAddr) -> String {
     let ip = addr.ip();
@@ -192,7 +206,7 @@ pub async fn get_session_info(
     (
         StatusCode::OK,
         Json(ApiResponse::ok(SessionInfo {
-            is_admin_pc: is_local_request(&addr),
+            is_admin_pc: is_admin_request(&addr, &state),
             share_urls: detect_access_urls(state.port),
         })),
     )
@@ -434,7 +448,7 @@ pub async fn update_config(
     State(state): State<Arc<AppState>>,
     Json(mut cfg): Json<AppConfig>,
 ) -> impl IntoResponse {
-    if !is_local_request(&addr) {
+    if !is_admin_request(&addr, &state) {
         return (
             StatusCode::FORBIDDEN,
             Json(ApiResponse::err(
@@ -559,7 +573,7 @@ pub async fn import_records(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<ImportRequest>,
 ) -> impl IntoResponse {
-    if !is_local_request(&addr) {
+    if !is_admin_request(&addr, &state) {
         return (
             StatusCode::FORBIDDEN,
             Json(ApiResponse::err(
@@ -634,7 +648,7 @@ pub async fn list_backups(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    if !is_local_request(&addr) {
+    if !is_admin_request(&addr, &state) {
         return (
             StatusCode::FORBIDDEN,
             Json(ApiResponse::err(
@@ -659,7 +673,7 @@ pub async fn create_backup_now(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    if !is_local_request(&addr) {
+    if !is_admin_request(&addr, &state) {
         return (
             StatusCode::FORBIDDEN,
             Json(ApiResponse::err(
@@ -704,7 +718,7 @@ pub async fn restore_backup(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<RestoreBackupRequest>,
 ) -> impl IntoResponse {
-    if !is_local_request(&addr) {
+    if !is_admin_request(&addr, &state) {
         return (
             StatusCode::FORBIDDEN,
             Json(ApiResponse::err(
@@ -767,7 +781,7 @@ pub async fn list_trash(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    if !is_local_request(&addr) {
+    if !is_admin_request(&addr, &state) {
         return (
             StatusCode::FORBIDDEN,
             Json(ApiResponse::err(
@@ -791,7 +805,7 @@ pub async fn restore_trash_record(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
-    if !is_local_request(&addr) {
+    if !is_admin_request(&addr, &state) {
         return (
             StatusCode::FORBIDDEN,
             Json(ApiResponse::err(
@@ -833,7 +847,7 @@ pub async fn purge_trash_record(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
-    if !is_local_request(&addr) {
+    if !is_admin_request(&addr, &state) {
         return (
             StatusCode::FORBIDDEN,
             Json(ApiResponse::err(
@@ -885,7 +899,7 @@ pub async fn list_audit_logs(
     State(state): State<Arc<AppState>>,
     Query(q): Query<AuditLogQuery>,
 ) -> impl IntoResponse {
-    if !is_local_request(&addr) {
+    if !is_admin_request(&addr, &state) {
         return (
             StatusCode::FORBIDDEN,
             Json(ApiResponse::err(
@@ -919,7 +933,7 @@ pub async fn toggle_ip_block(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<IpBlockRequest>,
 ) -> impl IntoResponse {
-    if !is_local_request(&addr) {
+    if !is_admin_request(&addr, &state) {
         return (
             StatusCode::FORBIDDEN,
             Json(ApiResponse::err(
@@ -986,6 +1000,94 @@ pub async fn toggle_ip_block(
             );
 
             (StatusCode::OK, Json(ApiResponse::ok(cfg.blocked_ips)))
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::err(e.to_string())),
+        ),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AdminIpRequest {
+    pub ip: String,
+    pub grant: bool, // true: 管理者権限付与, false: 解除
+}
+
+/// 指定IPアドレスへの管理者権限付与 / 解除を切り替え（管理者のみ許可）
+pub async fn toggle_admin_ip(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<AdminIpRequest>,
+) -> impl IntoResponse {
+    if !is_admin_request(&addr, &state) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ApiResponse::err(
+                "管理者権限の変更は管理者画面からのみ実行できます",
+            )),
+        );
+    }
+
+    let raw_ip = payload
+        .ip
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+
+    if raw_ip.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiResponse::err("IPアドレスを指定してください")),
+        );
+    }
+
+    if raw_ip == "127.0.0.1" || raw_ip == "::1" || raw_ip.eq_ignore_ascii_case("localhost") {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiResponse::err(
+                "サーバーPC自身（localhost / 127.0.0.1）は常時管理者権限を持っています",
+            )),
+        );
+    }
+
+    match state.db.get_config() {
+        Ok(mut cfg) => {
+            if payload.grant {
+                if !cfg.admin_ips.contains(&raw_ip) {
+                    cfg.admin_ips.push(raw_ip.clone());
+                }
+                // もし出禁リストに入っていたら解除する
+                cfg.blocked_ips.retain(|x| x != &raw_ip);
+            } else {
+                cfg.admin_ips.retain(|x| x != &raw_ip);
+            }
+
+            if let Err(e) = state.db.update_config(&cfg) {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ApiResponse::err(e.to_string())),
+                );
+            }
+
+            let action_label = if payload.grant {
+                "管理者権限を付与"
+            } else {
+                "管理者権限を解除"
+            };
+
+            let _ = state.db.insert_audit_log(
+                &format_client_ip(&addr),
+                "管理者",
+                "CONFIG",
+                None,
+                &format!("権限変更: {} の{}", raw_ip, action_label),
+                &format!("現在の管理者許可IP一覧: {:?}", cfg.admin_ips),
+            );
+
+            (StatusCode::OK, Json(ApiResponse::ok(cfg)))
         }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
