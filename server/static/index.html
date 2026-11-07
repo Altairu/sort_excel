@@ -19,19 +19,26 @@
       </div>
     </div>
     <div class="header-right">
-      <div class="filter-group" style="margin-right: 6px;">
+      <div class="filter-group" style="margin-right: 4px;">
         <label>操作者:</label>
         <select id="currentActorSelect" title="誰が操作したかを記録に残すための名前です（ブラウザに記憶されます）">
           <option value="">(未設定)</option>
         </select>
       </div>
       <button class="btn btn-primary" id="btnNewRecord">+ 新規案件を登録</button>
-      <button class="btn btn-secondary" id="btnExport">Excelを今すぐ出力</button>
-      <button class="btn btn-outline" id="btnCreateShortcut" title="デスクトップにこの画面を開くショートカットを作成します">ショートカット作成</button>
-      <button class="btn btn-outline" id="btnFullscreen" title="画面いっぱいに広げて表示します (Escで解除)">全画面表示</button>
-      <button class="btn btn-outline" id="btnHelp">使い方ガイド</button>
-      <button class="btn btn-outline" id="btnOpenReport">不具合 / 要望報告</button>
-      <a href="/admin" class="btn btn-outline" id="btnAdminLink" style="display: none; text-decoration: none;">管理者設定画面へ</a>
+      <button class="btn btn-secondary" id="btnExport">Excel出力</button>
+      <a href="/admin" class="btn btn-outline" id="btnAdminLink" style="display: none; text-decoration: none;">管理者設定</a>
+
+      <div class="header-dropdown">
+        <button type="button" class="btn btn-outline" id="btnHeaderMenu">メニュー ▾</button>
+        <div class="header-dropdown-menu" id="headerDropdownMenu">
+          <button type="button" class="dropdown-item" id="btnFullscreen">全画面表示に切り替え</button>
+          <button type="button" class="dropdown-item" id="btnCreateShortcut">デスクトップにショートカット作成</button>
+          <div class="dropdown-divider"></div>
+          <button type="button" class="dropdown-item" id="btnHelp">使い方ガイド / マニュアル</button>
+          <button type="button" class="dropdown-item" id="btnOpenReport">不具合 / 改善要望を報告</button>
+        </div>
+      </div>
     </div>
   </header>
 

@@ -919,8 +919,24 @@ document.getElementById('btnCreateShortcut').addEventListener('click', async () 
   }
 });
 
+// ヘッダードロップダウンメニュー開閉
+const btnHeaderMenu = document.getElementById('btnHeaderMenu');
+const headerDropdownMenu = document.getElementById('headerDropdownMenu');
+
+if (btnHeaderMenu && headerDropdownMenu) {
+  btnHeaderMenu.addEventListener('click', (e) => {
+    e.stopPropagation();
+    headerDropdownMenu.classList.toggle('open');
+  });
+
+  document.addEventListener('click', () => {
+    headerDropdownMenu.classList.remove('open');
+  });
+}
+
 // 使い方ガイドモーダル
 document.getElementById('btnHelp').addEventListener('click', () => {
+  if (headerDropdownMenu) headerDropdownMenu.classList.remove('open');
   document.getElementById('helpModal').classList.add('active');
 });
 document.getElementById('btnCloseHelp').addEventListener('click', () => {
@@ -983,7 +999,7 @@ const btnFullscreen = document.getElementById('btnFullscreen');
 function updateFullscreenUI() {
   const isFs = !!document.fullscreenElement || document.body.classList.contains('wide-fullscreen');
   if (btnFullscreen) {
-    btnFullscreen.textContent = isFs ? '全画面を解除' : '全画面表示';
+    btnFullscreen.textContent = isFs ? '全画面表示を解除' : '全画面表示に切り替え';
   }
 }
 
