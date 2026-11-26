@@ -5,7 +5,9 @@ Excelファイルの読み込み、整形、並べ替え、書式設定を行い
 """
 
 import datetime
+import re
 import sys
+from collections import Counter
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 import pandas as pd
@@ -20,6 +22,116 @@ from config_manager import load_config
 COLS_LOAN = ['融資実行日', '形態', 'お客様氏名', '物件', '依頼内容', '担当', '管轄', '立会時間', '立会場所', '立会者', '当日申請']
 COLS_CANCEL = ['金消日・面談日', '形態', 'お客様氏名', '物件', '依頼内容', '担当', '管轄', '金消時間', '金消場所・面談場所', '意思確認', '融資実行日']
 COLS_OUT_ORDER = ['日付', '形態', 'お客様氏名', '物件', '依頼内容', '担当', '管轄', '時間', '場所', '確認者', '申請', '識別']
+
+# 全角数字・記号を半角へ揃える変換テーブル
+_FULLWIDTH_TRANS = str.maketrans("０１２３４５６７８９／－：", "0123456789/-:")
+_RE_YMD = re.compile(r"^(\d{4})[/\-](\d{1,2})[/\-](\d{1,2})(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?$")
+_RE_YMD_JP = re.compile(r"^(\d{4})年(\d{1,2})月(\d{1,2})日$")
+_RE_MD = re.compile(r"^(\d{1,2})[/\-](\d{1,2})$")
+_RE_MD_JP = re.compile(r"^(\d{1,2})月(\d{1,2})日$")
+
+
+def _extract_explicit_year(val: Any) -> Optional[int]:
+    """値から明示された西暦年（1900〜2100）を取り出します"""
+    if val is None:
+        return None
+    if not isinstance(val, (str, bytes)) and pd.isna(val):
+        return None
+    if isinstance(val, (pd.Timestamp, datetime.datetime, datetime.date)):
+        return val.year if 1900 <= val.year <= 2100 else None
+    if isinstance(val, str):
+        s = val.translate(_FULLWIDTH_TRANS).strip()
+        m = _RE_YMD.match(s) or _RE_YMD_JP.match(s)
+        if m:
+            y = int(m.group(1))
+            return y if 1900 <= y <= 2100 else None
+    return None
+
+
+def _infer_reference_year(df: pd.DataFrame) -> int:
+    """シート内の日付列から最も多く使われている西暦年を推定します"""
+    years = []
+    for col in ('融資実行日', '金消日・面談日', '受諾日'):
+        if col in df.columns:
+            for val in df[col]:
+                y = _extract_explicit_year(val)
+                if y is not None:
+                    years.append(y)
+    if years:
+        return Counter(years).most_common(1)[0][0]
+    return datetime.date.today().year
+
+
+def _parse_single_date(val: Any, fallback_year: int) -> Any:
+    """セル値を安全に日付型へ変換します（年なし M/D の補完と誤解釈防止）"""
+    if val is None:
+        return pd.NaT
+    if not isinstance(val, (str, bytes)) and pd.isna(val):
+        return pd.NaT
+    if isinstance(val, (pd.Timestamp, datetime.datetime, datetime.date)):
+        if 1900 <= val.year <= 2100:
+            return pd.Timestamp(year=val.year, month=val.month, day=val.day)
+        return pd.NaT
+    if isinstance(val, (int, float, np.integer, np.floating)):
+        num = float(val)
+        if 1.0 <= num <= 100000.0:
+            try:
+                d = datetime.date(1899, 12, 30) + datetime.timedelta(days=int(num))
+                if 1900 <= d.year <= 2100:
+                    return pd.Timestamp(year=d.year, month=d.month, day=d.day)
+            except Exception:
+                return pd.NaT
+        return pd.NaT
+    if isinstance(val, str):
+        s = val.translate(_FULLWIDTH_TRANS).strip()
+        if not s or "\n" in s or "\r" in s:
+            return pd.NaT
+        m = _RE_YMD.match(s) or _RE_YMD_JP.match(s)
+        if m:
+            y, month, day = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            if 1900 <= y <= 2100:
+                try:
+                    return pd.Timestamp(year=y, month=month, day=day)
+                except ValueError:
+                    return pd.NaT
+            return pd.NaT
+        m_md = _RE_MD.match(s) or _RE_MD_JP.match(s)
+        if m_md:
+            month, day = int(m_md.group(1)), int(m_md.group(2))
+            try:
+                return pd.Timestamp(year=fallback_year, month=month, day=day)
+            except ValueError:
+                return pd.NaT
+    return pd.NaT
+
+
+def _parse_date_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """DataFrame 内の対象日付列を安全な datetime 型へ変換します"""
+    ref_year = _infer_reference_year(df)
+    target_cols = [c for c in ('融資実行日', '金消日・面談日') if c in df.columns]
+    if not target_cols:
+        return df
+
+    # 行ごとに他の日付列から西暦年を参照できるようにします
+    year_source_cols = [c for c in ('融資実行日', '金消日・面談日', '受諾日') if c in df.columns]
+    row_years = []
+    for idx in df.index:
+        found_year = None
+        for col in year_source_cols:
+            y = _extract_explicit_year(df.at[idx, col])
+            if y is not None:
+                found_year = y
+                break
+        row_years.append(found_year if found_year is not None else ref_year)
+
+    for col in target_cols:
+        parsed = [
+            _parse_single_date(val, y)
+            for val, y in zip(df[col].tolist(), row_years)
+        ]
+        df[col] = pd.to_datetime(pd.Series(parsed, index=df.index), errors='coerce')
+    return df
+
 
 def _read_sheet(path: Path, log_cb: Optional[Callable[[str], None]] = None) -> pd.DataFrame:
     """指定されたExcelファイルから対象シートを読み込みます"""
@@ -44,10 +156,8 @@ def _read_sheet(path: Path, log_cb: Optional[Callable[[str], None]] = None) -> p
     df = pd.read_excel(excel_file, sheet_name=target_sheet)
     df.columns = df.columns.astype(str).str.strip()
 
-    # 日付列のパース
-    for c in ['融資実行日', '金消日・面談日']:
-        if c in df.columns:
-            df[c] = pd.to_datetime(df[c], errors='coerce')
+    # 日付列のパース（年なし表記の補完と西暦0001年への誤変換防止）
+    df = _parse_date_columns(df)
     return df
 
 def _dt_to_str(s: pd.Series) -> pd.Series:
@@ -110,6 +220,8 @@ def _make_tables(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataF
     if '日付' in cancel.columns:
         cancel['日付'] = pd.to_datetime(cancel['日付'], errors='coerce')
         cancel['日付'] = _dt_to_str(cancel['日付'])
+    if '申請' in cancel.columns:
+        cancel['申請'] = _dt_to_str(pd.to_datetime(cancel['申請'], errors='coerce'))
 
     # 統合データ
     combined = pd.concat([loan, cancel], ignore_index=True, sort=False)
@@ -169,9 +281,17 @@ def _sort_for_date_sheet(df_date: pd.DataFrame, config: Dict[str, Any]) -> pd.Da
     return df_sorted
 
 def _sanitize_cell_value(val: Any) -> Any:
-    """Excelセル用の値整形を行います（欠損値をNoneに、時刻型を文字列に変換）"""
-    if pd.isna(val):
+    """Excelセル用の値整形を行います（欠損値をNoneに、日付・時刻型を文字列に変換）"""
+    if val is None:
         return None
+    if not isinstance(val, (str, bytes)) and pd.isna(val):
+        return None
+    if isinstance(val, (pd.Timestamp, datetime.datetime)):
+        if val.hour == 0 and val.minute == 0 and val.second == 0:
+            return val.strftime('%Y/%m/%d')
+        return val.strftime('%Y/%m/%d %H:%M:%S')
+    if isinstance(val, datetime.date):
+        return val.strftime('%Y/%m/%d')
     if isinstance(val, datetime.time):
         return val.strftime('%H:%M:%S')
     return val

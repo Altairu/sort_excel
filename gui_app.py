@@ -137,6 +137,57 @@ def _resolve_resource_path(filename: str) -> Path:
     return Path(__file__).resolve().parent / filename
 
 
+def _build_github_issue_url(
+    title_str: str,
+    body_str: str,
+    base_url: Optional[str] = None,
+    max_url_len: int = 1900,
+) -> Tuple[str, bool]:
+    """エンコード後の長さが Windows の上限内に収まる GitHub Issue 作成 URL を組み立てます"""
+    target_base = base_url or updater.NEW_ISSUE_URL
+    raw_title = title_str.strip()
+    title_truncated = False
+    if len(raw_title) > 120:
+        safe_title = raw_title[:117] + "..."
+        title_truncated = True
+    else:
+        safe_title = raw_title
+
+    def make_url(title_val: str, body_val: str) -> str:
+        params = urllib.parse.urlencode({"title": title_val, "body": body_val})
+        return f"{target_base}?{params}"
+
+    full_url = make_url(safe_title, body_str)
+    if len(full_url) <= max_url_len:
+        return full_url, title_truncated
+
+    suffix = "\n\n...(長いため一部省略しました。全文はクリップボードにコピー済みです)"
+    lo, hi = 0, len(body_str)
+    best_mid = 0
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        candidate_url = make_url(safe_title, body_str[:mid] + suffix)
+        if len(candidate_url) <= max_url_len:
+            best_mid = mid
+            lo = mid + 1
+        else:
+            hi = mid - 1
+
+    if best_mid > 0:
+        return make_url(safe_title, body_str[:best_mid] + suffix), True
+
+    short_notice = "報告文の全文をクリップボードにコピー済みです。ここに貼り付けてください。"
+    notice_url = make_url(safe_title, short_notice)
+    if len(notice_url) <= max_url_len:
+        return notice_url, True
+
+    title_only_url = f"{target_base}?{urllib.parse.urlencode({'title': safe_title})}"
+    if len(title_only_url) <= max_url_len:
+        return title_only_url, True
+
+    return target_base, True
+
+
 class FlatButton(tk.Button):
     """ホバーアニメーション付きのフラットデザインボタン"""
 
@@ -368,6 +419,30 @@ class SortExcelApp(tk.Tk):
             background=[("active", "#94A3B8")],
         )
 
+        # ツリービュー（バージョン一覧表示用）
+        self.style.configure(
+            "Clean.Treeview",
+            background="#FFFFFF",
+            fieldbackground="#FFFFFF",
+            foreground=COLOR_TEXT_MAIN,
+            rowheight=self._px(26),
+            borderwidth=0,
+            font=self.font_base,
+        )
+        self.style.map(
+            "Clean.Treeview",
+            background=[("selected", "#DBEAFE")],
+            foreground=[("selected", "#1E3A8A")],
+        )
+        self.style.configure(
+            "Clean.Treeview.Heading",
+            background=COLOR_SECONDARY_BG,
+            foreground=COLOR_TEXT_BODY,
+            font=self.font_bold,
+            relief=tk.FLAT,
+            padding=(self._px(8), self._px(5)),
+        )
+
     def _create_card(
         self,
         parent: tk.Widget,
@@ -484,12 +559,12 @@ class SortExcelApp(tk.Tk):
 
         FlatButton(
             header_actions,
-            text="更新を確認",
+            text="バージョン変更 / 更新",
             variant="secondary",
             font=self.font_sm,
             padx=self._px(10),
             pady=self._px(4),
-            command=self._check_update_manual,
+            command=self._open_version_manager_dialog,
         ).pack(side=tk.LEFT, padx=(0, self._px(6)))
 
         FlatButton(
@@ -1595,6 +1670,16 @@ class SortExcelApp(tk.Tk):
             style="Clean.TCheckbutton",
         ).pack(anchor=tk.W, pady=self._px(2))
 
+        FlatButton(
+            fmt_inner,
+            text="バージョンを選択して変更...",
+            variant="secondary",
+            font=self.font_sm,
+            padx=self._px(12),
+            pady=self._px(5),
+            command=self._open_version_manager_dialog,
+        ).pack(anchor=tk.W, pady=(self._px(8), 0))
+
     def _collect_settings_from_ui(self) -> None:
         """画面上の設定項目を読み取って config_data に格納します"""
         new_sort_keys = []
@@ -1696,10 +1781,10 @@ class SortExcelApp(tk.Tk):
 
         FlatButton(
             btn_row,
-            text="最新バージョンを確認",
+            text="更新 / バージョン変更",
             variant="secondary",
             font=self.font_base,
-            command=self._check_update_manual,
+            command=self._open_version_manager_dialog,
         ).pack(side=tk.LEFT)
 
         # 下部ドキュメント切替カード
@@ -1809,7 +1894,10 @@ class SortExcelApp(tk.Tk):
             "  * 統合データ : 両データを日付昇順で統合した一覧\n"
             "  * 日付別シート : 日付ごとに分割し、指定したソート優先順位と担当順で並べ替えたシート\n\n"
             "* 自動適用される書式\n"
-            "  全セルの上下左右中央揃え、縮小して全体を表示、点線罫線、列幅の最適化、指定した行の高さが自動で適用されます。"
+            "  全セルの上下左右中央揃え、縮小して全体を表示、点線罫線、列幅の最適化、指定した行の高さが自動で適用されます。\n\n"
+            "* バージョンの更新と切り替え\n"
+            "  画面右上の バージョン変更 / 更新 ボタンやヘルプメニューから、公開されているバージョン一覧を確認できます。\n"
+            "  最新版へのアップデートだけでなく、過去のバージョンへの切り替えや再インストールも行えます。"
         )
 
     def _get_troubleshooting_text(self) -> str:
@@ -1824,9 +1912,10 @@ class SortExcelApp(tk.Tk):
             "* 時間列の並び順が期待通りにならない場合\n"
             "  HH:MM や H:MM:SS 形式の文字列であれば自動で秒数に換算して並べ替えます。\n"
             "  時刻として解釈できない文字列が含まれている行は末尾に配置されます。\n\n"
-            "* 自動アップデートが失敗する場合\n"
+            "* 自動アップデートやバージョン変更が失敗する場合\n"
             "  Program Files などの管理者権限が必要なフォルダに exe を置いている場合、ファイルの差し替えができません。\n"
-            "  デスクトップやドキュメントなど、書き込み権限のあるフォルダに exe を配置してください。\n\n"
+            "  デスクトップやドキュメントなど、ユーザーが書き込めるフォルダに exe を配置してください。\n"
+            "  また、バージョン選択機能を持たない古いバージョンへ戻したあとに最新版へ戻したい場合は、更新確認機能を利用してください。\n\n"
             "* 問題が解決しない場合や不具合を見つけた場合\n"
             "  画面上部の 不具合を報告 ボタンから、診断情報付きで簡単に報告を作成できます。\n"
             "  GitHubアカウントをお持ちの場合は GitHub Issues で直接送信でき、お持ちでない場合も報告文をクリップボードにコピーして共有できます。"
@@ -1901,8 +1990,8 @@ class SortExcelApp(tk.Tk):
         dlg.title("不具合の報告 / フィードバック")
         dlg.configure(bg=COLOR_BG_SURFACE)
         dlg.transient(self)
-        dlg.geometry(f"{self._px(660)}x{self._px(580)}")
-        dlg.minsize(self._px(560), self._px(480))
+        dlg.geometry(f"{self._px(700)}x{self._px(580)}")
+        dlg.minsize(self._px(640), self._px(480))
 
         container = tk.Frame(dlg, bg=COLOR_BG_SURFACE, padx=self._px(20), pady=self._px(16))
         container.pack(fill=tk.BOTH, expand=True)
@@ -2079,15 +2168,40 @@ class SortExcelApp(tk.Tk):
             # クリップボードにも全文を控えとしてコピー
             self.clipboard_clear()
             self.clipboard_append(f"# {title_str}\n\n{body_str}")
+            self.update_idletasks()
 
-            # URL長制限を超えないよう安全に調整
-            url_body = body_str
-            if len(url_body) > 2800:
-                url_body = url_body[:2800] + "\n\n...(全文はクリップボードにコピーされています)"
+            issue_url, truncated = _build_github_issue_url(title_str, body_str)
+            opened = webbrowser.open(issue_url)
+            if not opened:
+                opened_fallback = webbrowser.open(updater.NEW_ISSUE_URL)
+                if opened_fallback:
+                    self.status_var.set("GitHub Issues の作成ページを開きました (報告文をクリップボードにコピー済み)")
+                    messagebox.showinfo(
+                        "不具合報告",
+                        "GitHub Issues の作成ページを開きました。\n"
+                        "報告文の全文はクリップボードにコピー済みですので、本文欄へ貼り付けて送信してください。",
+                        parent=dlg,
+                    )
+                    dlg.destroy()
+                else:
+                    messagebox.showerror(
+                        "ブラウザ起動エラー",
+                        "ブラウザを自動で開けませんでした。\n\n"
+                        "報告文の全文はクリップボードにコピー済みです。\n"
+                        "手動で以下のページを開いて貼り付けるか、ファイルに保存してください。\n\n"
+                        f"{updater.NEW_ISSUE_URL}",
+                        parent=dlg,
+                    )
+                return
 
-            params = urllib.parse.urlencode({"title": title_str, "body": url_body})
-            webbrowser.open(f"{updater.NEW_ISSUE_URL}?{params}")
             self.status_var.set("GitHub Issues の作成ページを開きました (報告文をクリップボードにもコピー済み)")
+            if truncated:
+                messagebox.showinfo(
+                    "不具合報告",
+                    "GitHub Issues の作成ページを開きました。\n"
+                    "報告文が長いため一部を省略して開いています。全文はクリップボードにコピー済みですので、必要に応じて貼り付けてください。",
+                    parent=dlg,
+                )
             dlg.destroy()
 
         def copy_report() -> None:
@@ -2126,27 +2240,27 @@ class SortExcelApp(tk.Tk):
             text="GitHub Issues で報告する",
             variant="primary",
             font=self.font_bold,
-            padx=self._px(16),
+            padx=self._px(12),
             pady=self._px(7),
             command=submit_github_issue,
-        ).pack(side=tk.LEFT, padx=(0, self._px(8)))
+        ).pack(side=tk.LEFT, padx=(0, self._px(6)))
 
         FlatButton(
             btn_bar,
             text="報告文をコピーする",
             variant="secondary",
             font=self.font_bold,
-            padx=self._px(14),
+            padx=self._px(10),
             pady=self._px(7),
             command=copy_report,
-        ).pack(side=tk.LEFT, padx=(0, self._px(8)))
+        ).pack(side=tk.LEFT, padx=(0, self._px(6)))
 
         FlatButton(
             btn_bar,
             text="ファイルに保存...",
             variant="secondary",
             font=self.font_base,
-            padx=self._px(12),
+            padx=self._px(10),
             pady=self._px(7),
             command=save_report_file,
         ).pack(side=tk.LEFT)
@@ -2156,7 +2270,7 @@ class SortExcelApp(tk.Tk):
             text="閉じる",
             variant="secondary",
             font=self.font_base,
-            padx=self._px(12),
+            padx=self._px(10),
             pady=self._px(7),
             command=dlg.destroy,
         ).pack(side=tk.RIGHT)
@@ -2188,6 +2302,7 @@ class SortExcelApp(tk.Tk):
         help_menu.add_command(label="GitHub Issues を開く", command=lambda: webbrowser.open(updater.ISSUES_URL))
         help_menu.add_separator()
         help_menu.add_command(label="更新を確認...", command=self._check_update_manual)
+        help_menu.add_command(label="バージョンを選択して変更...", command=self._open_version_manager_dialog)
         help_menu.add_separator()
         help_menu.add_command(label="権利表記 / ライセンス", command=lambda: self._open_help_tab_section("rights"))
         help_menu.add_command(label="バージョン情報", command=self._show_about)
@@ -2320,15 +2435,405 @@ class SortExcelApp(tk.Tk):
             if updater.is_newer(info):
                 self.after(0, self._show_update_dialog, info)
             else:
-                self.after(
-                    0,
-                    lambda: messagebox.showinfo(
+                def ask_switch() -> None:
+                    open_mgr = messagebox.askyesno(
                         "更新の確認",
-                        f"お使いのバージョン v{__version__} は最新です。",
-                    ),
-                )
+                        f"お使いのバージョン v{__version__} は最新です。\n別のバージョンへ切り替えますか？",
+                    )
+                    if open_mgr:
+                        self._open_version_manager_dialog()
+
+                self.after(0, ask_switch)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _open_version_manager_dialog(self) -> None:
+        """公開されているバージョン一覧を表示し、好きなバージョンへ入れ替えるダイアログを開きます"""
+        dialog = tk.Toplevel(self)
+        dialog.title("バージョンの確認 / 変更")
+        dialog.configure(bg=COLOR_BG_SURFACE)
+        dialog.transient(self)
+        dialog.geometry(f"{self._px(720)}x{self._px(520)}")
+        dialog.minsize(self._px(620), self._px(440))
+
+        frame = tk.Frame(dialog, bg=COLOR_BG_SURFACE, padx=self._px(20), pady=self._px(16))
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        # 下部ボタン行（先に下部に固定）
+        btn_row = tk.Frame(frame, bg=COLOR_BG_SURFACE)
+        btn_row.pack(side=tk.BOTTOM, fill=tk.X, pady=(self._px(10), 0))
+
+        # 1. ヘッダー情報
+        header_box = tk.Frame(frame, bg=COLOR_BG_SURFACE)
+        header_box.pack(fill=tk.X, pady=(0, self._px(8)))
+
+        title_row = tk.Frame(header_box, bg=COLOR_BG_SURFACE)
+        title_row.pack(fill=tk.X)
+
+        tk.Label(
+            title_row,
+            text="バージョンの確認 / 変更",
+            font=self.font_card_title,
+            fg=COLOR_TEXT_MAIN,
+            bg=COLOR_BG_SURFACE,
+            anchor=tk.W,
+        ).pack(side=tk.LEFT)
+
+        tk.Label(
+            title_row,
+            text=f"現在のバージョン: v{__version__}",
+            font=self.font_sm,
+            fg=COLOR_PRIMARY,
+            bg="#EFF6FF",
+            padx=self._px(8),
+            pady=self._px(2),
+        ).pack(side=tk.RIGHT)
+
+        summary_var = tk.StringVar(value="GitHubから公開バージョン一覧を取得しています...")
+        tk.Label(
+            header_box,
+            textvariable=summary_var,
+            font=self.font_sm,
+            fg=COLOR_TEXT_MUTED,
+            bg=COLOR_BG_SURFACE,
+            anchor=tk.W,
+            justify=tk.LEFT,
+            wraplength=self._px(660),
+        ).pack(fill=tk.X, pady=(self._px(4), 0))
+
+        # 2. バージョン一覧テーブル
+        list_wrap = tk.Frame(frame, bg="#FFFFFF", highlightbackground=COLOR_BORDER, highlightthickness=1)
+        list_wrap.pack(fill=tk.BOTH, expand=True, pady=(0, self._px(8)))
+
+        columns = ("tag", "date", "status", "support")
+        tree = ttk.Treeview(
+            list_wrap,
+            columns=columns,
+            show="headings",
+            selectmode="browse",
+            height=7,
+            style="Clean.Treeview",
+        )
+        tree.heading("tag", text="バージョン", anchor=tk.W)
+        tree.heading("date", text="公開日", anchor=tk.W)
+        tree.heading("status", text="状態", anchor=tk.W)
+        tree.heading("support", text="自動入れ替え", anchor=tk.W)
+
+        tree.column("tag", width=self._px(110), minwidth=self._px(90), stretch=False, anchor=tk.W)
+        tree.column("date", width=self._px(110), minwidth=self._px(95), stretch=False, anchor=tk.W)
+        tree.column("status", width=self._px(210), minwidth=self._px(160), stretch=True, anchor=tk.W)
+        tree.column("support", width=self._px(140), minwidth=self._px(120), stretch=False, anchor=tk.W)
+
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        tree_scroll = ttk.Scrollbar(
+            list_wrap,
+            orient=tk.VERTICAL,
+            command=tree.yview,
+            style="Clean.Vertical.TScrollbar",
+        )
+        tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        tree.configure(yscrollcommand=tree_scroll.set)
+
+        # 3. 選択中バージョンの詳細・変更内容エリア
+        detail_title_var = tk.StringVar(value="選択中のバージョン: なし")
+        tk.Label(
+            frame,
+            textvariable=detail_title_var,
+            font=self.font_bold,
+            fg=COLOR_TEXT_BODY,
+            bg=COLOR_BG_SURFACE,
+            anchor=tk.W,
+        ).pack(fill=tk.X, pady=(0, self._px(4)))
+
+        notes_frame = tk.Frame(frame, bg=COLOR_BG_SUBTLE, highlightbackground=COLOR_BORDER, highlightthickness=1)
+        notes_frame.pack(fill=tk.BOTH, expand=True, pady=(0, self._px(8)))
+
+        notes_text = tk.Text(
+            notes_frame,
+            wrap=tk.WORD,
+            height=6,
+            font=self.font_sm,
+            bg=COLOR_BG_SUBTLE,
+            fg=COLOR_TEXT_BODY,
+            relief=tk.FLAT,
+            bd=0,
+            padx=self._px(8),
+            pady=self._px(6),
+        )
+        notes_text.insert("1.0", "バージョン一覧を読み込んでいます...")
+        notes_text.configure(state=tk.DISABLED)
+        notes_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        notes_scroll = ttk.Scrollbar(
+            notes_frame,
+            orient=tk.VERTICAL,
+            command=notes_text.yview,
+            style="Clean.Vertical.TScrollbar",
+        )
+        notes_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        notes_text.configure(yscrollcommand=notes_scroll.set)
+
+        # 4. 注意事項ラベル
+        notice_var = tk.StringVar(value="")
+        tk.Label(
+            frame,
+            textvariable=notice_var,
+            font=self.font_sm,
+            fg=COLOR_TEXT_MUTED,
+            bg=COLOR_BG_SURFACE,
+            anchor=tk.W,
+            justify=tk.LEFT,
+            wraplength=self._px(660),
+        ).pack(fill=tk.X)
+
+        release_map: Dict[str, "updater.ReleaseInfo"] = {}
+
+        def set_notes_content(text: str) -> None:
+            notes_text.configure(state=tk.NORMAL)
+            notes_text.delete("1.0", tk.END)
+            notes_text.insert("1.0", text)
+            notes_text.configure(state=tk.DISABLED)
+
+        def get_selected_release() -> Optional["updater.ReleaseInfo"]:
+            sel = tree.selection()
+            if not sel:
+                return None
+            return release_map.get(sel[0])
+
+        def update_selection_details(_event: Optional[tk.Event] = None) -> None:
+            rel = get_selected_release()
+            if rel is None:
+                detail_title_var.set("選択中のバージョン: なし")
+                notice_var.set("")
+                btn_install.configure(text="バージョンを選択")
+                btn_install.set_enabled(False)
+                return
+
+            pub_date = rel.published_at[:10] if rel.published_at else "不明"
+            detail_title_var.set(f"選択中のバージョン: {rel.tag} (公開日: {pub_date})")
+            set_notes_content(rel.notes or "変更内容の記載はありません。")
+
+            if not updater.is_frozen():
+                notice_var.set(
+                    "Python スクリプトとして実行中のため、アプリ内からの自動入れ替えはできません。"
+                    "GitHubページから入手してください。"
+                )
+            elif not updater.has_assets(rel):
+                notice_var.set(
+                    "このリリースには自動入れ替え用の sort_excel.exe とチェックサムが添付されていません。"
+                    "GitHubページから確認してください。"
+                )
+            elif updater.is_older(rel):
+                notice_var.set(
+                    "古いバージョンへ戻します。設定ファイルは引き継がれます。"
+                    "古い版にバージョン選択機能がない場合も、更新確認から最新版へ戻せます。"
+                )
+            else:
+                notice_var.set(
+                    "このバージョンをダウンロードし、SHA256 を検証したうえで自動入れ替えと再起動を行います。"
+                )
+
+            if updater.can_self_update(rel):
+                if updater.is_newer(rel):
+                    btn_install.configure(text="このバージョンへ更新")
+                elif updater.is_older(rel):
+                    btn_install.configure(text="このバージョンへ戻す")
+                elif updater.is_current(rel):
+                    btn_install.configure(text="このバージョンを再インストール")
+                else:
+                    btn_install.configure(text="このバージョンを入れる")
+                btn_install.set_enabled(True)
+            else:
+                btn_install.configure(text="自動入れ替え非対応")
+                btn_install.set_enabled(False)
+
+        def on_open_github() -> None:
+            rel = get_selected_release()
+            target_url = rel.html_url if (rel and rel.html_url) else updater.RELEASES_LIST_URL
+            webbrowser.open(target_url)
+
+        def on_install() -> None:
+            if self.is_processing:
+                messagebox.showwarning(
+                    "バージョンの変更",
+                    "並べ替え処理の実行中です。処理が終わってから変更してください。",
+                    parent=dialog,
+                )
+                return
+            rel = get_selected_release()
+            if rel is None or not updater.can_self_update(rel):
+                return
+
+            if updater.is_older(rel):
+                action_label = "ダウングレード"
+                confirm_msg = (
+                    f"現在のバージョン v{__version__} から過去のバージョン {rel.tag} へ戻します。\n\n"
+                    "・設定ファイル (sort_excel_config.json) はそのまま引き継がれます。\n"
+                    "・古い版にバージョン選択機能がない場合でも、更新確認から最新版へ戻せます。\n"
+                    "・入れ替え後、アプリを自動で再起動します。\n\n"
+                    "実行してもよろしいですか？"
+                )
+            elif updater.is_current(rel):
+                action_label = "再インストール"
+                confirm_msg = (
+                    f"現在と同じバージョン {rel.tag} をダウンロードして再インストールします。\n"
+                    "入れ替え後、アプリを自動で再起動します。\n\n"
+                    "実行してもよろしいですか？"
+                )
+            elif updater.is_newer(rel):
+                action_label = "アップデート"
+                confirm_msg = (
+                    f"新しいバージョン {rel.tag} へ更新します。\n"
+                    "入れ替え後、アプリを自動で再起動します。\n\n"
+                    "実行してもよろしいですか？"
+                )
+            else:
+                action_label = "バージョン変更"
+                confirm_msg = (
+                    f"バージョン {rel.tag} をダウンロードして入れ替えます。\n"
+                    "入れ替え後、アプリを自動で再起動します。\n\n"
+                    "実行してもよろしいですか？"
+                )
+
+            if not messagebox.askyesno(action_label, confirm_msg, parent=dialog):
+                return
+            self._begin_update(rel, dialog, action_label=action_label)
+
+        btn_reload = FlatButton(
+            btn_row,
+            text="再読み込み",
+            variant="secondary",
+            font=self.font_base,
+            command=lambda: load_releases(),
+        )
+        btn_reload.pack(side=tk.LEFT, padx=(0, self._px(6)))
+
+        FlatButton(
+            btn_row,
+            text="GitHubページを開く",
+            variant="secondary",
+            font=self.font_base,
+            command=on_open_github,
+        ).pack(side=tk.LEFT)
+
+        btn_install = FlatButton(
+            btn_row,
+            text="バージョンを選択",
+            variant="primary",
+            font=self.font_bold,
+            command=on_install,
+        )
+        btn_install.pack(side=tk.RIGHT)
+        btn_install.set_enabled(False)
+
+        FlatButton(
+            btn_row,
+            text="閉じる",
+            variant="secondary",
+            font=self.font_base,
+            command=dialog.destroy,
+        ).pack(side=tk.RIGHT, padx=(0, self._px(6)))
+
+        tree.bind("<<TreeviewSelect>>", update_selection_details)
+
+        def load_releases() -> None:
+            btn_reload.set_enabled(False)
+            btn_install.set_enabled(False)
+            summary_var.set("GitHubから公開バージョン一覧を取得しています...")
+            detail_title_var.set("選択中のバージョン: 読み込み中")
+            notice_var.set("")
+            set_notes_content("バージョン一覧を読み込んでいます...")
+            for iid in tree.get_children():
+                tree.delete(iid)
+            release_map.clear()
+
+            def worker() -> None:
+                try:
+                    releases = updater.fetch_releases(limit=30, include_prerelease=True)
+                except updater.UpdateError as e:
+                    err_msg = str(e)
+
+                    def on_error() -> None:
+                        if not dialog.winfo_exists():
+                            return
+                        btn_reload.set_enabled(True)
+                        summary_var.set(f"一覧の取得に失敗しました: {err_msg}")
+                        detail_title_var.set("選択中のバージョン: 取得失敗")
+                        set_notes_content(
+                            f"GitHub Releases からバージョン一覧を取得できませんでした。\n\n詳細:\n{err_msg}"
+                        )
+                        notice_var.set("通信状態を確認して再読み込みするか、GitHubページを開くから直接確認してください。")
+
+                    self.after(0, on_error)
+                    return
+
+                def on_loaded() -> None:
+                    if not dialog.winfo_exists():
+                        return
+                    btn_reload.set_enabled(True)
+                    if not releases:
+                        summary_var.set("公開されているリリースが見つかりませんでした。")
+                        detail_title_var.set("選択中のバージョン: なし")
+                        set_notes_content("公開中のリリースはありません。")
+                        return
+
+                    latest_stable = next((r for r in releases if not r.prerelease), releases[0])
+                    if updater.is_newer(latest_stable):
+                        summary_var.set(
+                            f"最新バージョン {latest_stable.tag} が公開されています（選択して入れ替えできます）。"
+                        )
+                    else:
+                        summary_var.set(
+                            f"現在お使いの v{__version__} は最新です（過去のバージョンへ切り替えることもできます）。"
+                        )
+
+                    first_iid = None
+                    current_iid = None
+                    newer_stable_iid = None
+
+                    for idx, rel in enumerate(releases):
+                        iid = f"rel_{idx}"
+                        release_map[iid] = rel
+                        if first_iid is None:
+                            first_iid = iid
+
+                        is_latest_stable = rel.tag == latest_stable.tag
+                        if updater.is_current(rel):
+                            status_str = "現在使用中 / 最新" if is_latest_stable else "現在使用中"
+                            if current_iid is None:
+                                current_iid = iid
+                        elif updater.is_newer(rel):
+                            status_str = "最新 (アップデート可能)" if is_latest_stable else "新しいバージョン"
+                            if not rel.prerelease and newer_stable_iid is None:
+                                newer_stable_iid = iid
+                        elif updater.is_older(rel):
+                            status_str = "過去バージョン"
+                        else:
+                            status_str = ""
+
+                        if rel.prerelease:
+                            status_str = f"{status_str} (プレリリース)".strip()
+
+                        pub_date = rel.published_at[:10] if rel.published_at else "-"
+                        support_str = "対応" if updater.has_assets(rel) else "非対応 (exeなし)"
+
+                        tree.insert("", tk.END, iid=iid, values=(rel.tag, pub_date, status_str, support_str))
+
+                    target_iid = newer_stable_iid or current_iid or first_iid
+                    if target_iid is not None:
+                        tree.selection_set(target_iid)
+                        tree.focus(target_iid)
+                        tree.see(target_iid)
+                        update_selection_details()
+
+                self.after(0, on_loaded)
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        load_releases()
+        dialog.grab_set()
+        dialog.focus_set()
 
     def _show_update_dialog(self, info: "updater.ReleaseInfo") -> None:
         """新しいバージョンの案内ダイアログを表示します"""
@@ -2336,8 +2841,8 @@ class SortExcelApp(tk.Tk):
         dialog.title("アップデートのお知らせ")
         dialog.configure(bg=COLOR_BG_SURFACE)
         dialog.transient(self)
-        dialog.geometry(f"{self._px(520)}x{self._px(380)}")
-        dialog.minsize(self._px(460), self._px(320))
+        dialog.geometry(f"{self._px(540)}x{self._px(380)}")
+        dialog.minsize(self._px(480), self._px(320))
 
         frame = tk.Frame(dialog, bg=COLOR_BG_SURFACE, padx=self._px(20), pady=self._px(16))
         frame.pack(fill=tk.BOTH, expand=True)
@@ -2356,6 +2861,10 @@ class SortExcelApp(tk.Tk):
             webbrowser.open(info.html_url)
             dialog.destroy()
 
+        def on_open_version_manager() -> None:
+            dialog.destroy()
+            self._open_version_manager_dialog()
+
         can_update = updater.can_self_update(info)
         if can_update:
             FlatButton(
@@ -2363,7 +2872,7 @@ class SortExcelApp(tk.Tk):
                 text="今すぐ更新する",
                 variant="primary",
                 font=self.font_bold,
-                command=lambda: self._begin_update(info, dialog),
+                command=lambda: self._begin_update(info, dialog, action_label="アップデート"),
             ).pack(side=tk.RIGHT)
         else:
             FlatButton(
@@ -2381,6 +2890,14 @@ class SortExcelApp(tk.Tk):
             font=self.font_base,
             command=dialog.destroy,
         ).pack(side=tk.RIGHT, padx=self._px(6))
+
+        FlatButton(
+            btn_row,
+            text="他のバージョンを選ぶ...",
+            variant="secondary",
+            font=self.font_sm,
+            command=on_open_version_manager,
+        ).pack(side=tk.LEFT, padx=(0, self._px(6)))
 
         FlatButton(
             btn_row,
@@ -2464,19 +2981,24 @@ class SortExcelApp(tk.Tk):
         dialog.grab_set()
         dialog.focus_set()
 
-    def _begin_update(self, info: "updater.ReleaseInfo", dialog: tk.Toplevel) -> None:
-        """最新版のダウンロードと差し替えを実行します"""
+    def _begin_update(
+        self,
+        info: "updater.ReleaseInfo",
+        dialog: tk.Toplevel,
+        action_label: str = "アップデート",
+    ) -> None:
+        """指定バージョンのダウンロードと差し替えを実行します"""
         if self.is_processing:
             messagebox.showwarning(
-                "更新",
-                "並べ替え処理の実行中です。処理が終わってから更新してください。",
+                action_label,
+                "並べ替え処理の実行中です。処理が終わってから実行してください。",
                 parent=dialog,
             )
             return
         dialog.destroy()
 
         win = tk.Toplevel(self)
-        win.title("アップデート")
+        win.title(action_label)
         win.configure(bg=COLOR_BG_SURFACE)
         win.transient(self)
         win.resizable(False, False)
@@ -2510,7 +3032,13 @@ class SortExcelApp(tk.Tk):
                 if total > 0:
                     bar["value"] = done * 100 / total
                     status.set(
-                        f"{info.tag} をダウンロードしています... {done // (1024 * 1024)} / {total // (1024 * 1024)} MB"
+                        f"{info.tag} をダウンロードしています... "
+                        f"{done / (1024 * 1024):.1f} / {total / (1024 * 1024):.1f} MB"
+                    )
+                else:
+                    status.set(
+                        f"{info.tag} をダウンロードしています... "
+                        f"{done / (1024 * 1024):.1f} MB"
                     )
 
             self.after(0, ui)
@@ -2519,24 +3047,24 @@ class SortExcelApp(tk.Tk):
             try:
                 new_path = updater.download_update(info, progress_cb=on_progress)
             except updater.UpdateError as e:
-                self.after(0, self._on_update_failed, win, str(e))
+                self.after(0, self._on_update_failed, win, str(e), action_label)
                 return
-            self.after(0, self._finish_update, win, new_path)
+            self.after(0, self._finish_update, win, new_path, action_label)
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _on_update_failed(self, win: tk.Toplevel, message: str) -> None:
-        """更新失敗時のエラーハンドリング"""
+    def _on_update_failed(self, win: tk.Toplevel, message: str, action_label: str = "アップデート") -> None:
+        """入れ替え失敗時のエラーハンドリング"""
         win.grab_release()
         win.destroy()
-        messagebox.showerror("アップデート失敗", f"{message}\n\n現在のバージョンのまま使用できます。")
+        messagebox.showerror(f"{action_label}失敗", f"{message}\n\n現在のバージョンのまま使用できます。")
 
-    def _finish_update(self, win: tk.Toplevel, new_path: Path) -> None:
+    def _finish_update(self, win: tk.Toplevel, new_path: Path, action_label: str = "アップデート") -> None:
         """exeを差し替えて再起動します"""
         try:
             updater.apply_update(new_path)
         except updater.UpdateError as e:
-            self._on_update_failed(win, str(e))
+            self._on_update_failed(win, str(e), action_label)
             return
         win.grab_release()
         win.destroy()
